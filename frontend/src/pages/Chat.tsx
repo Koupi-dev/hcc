@@ -4,7 +4,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { Send, Hash, Volume2, Mic, MicOff, Volume, VolumeX, Settings, Smile, Reply, MoreHorizontal, ArrowDown, BookOpen, Plus } from 'lucide-react'
+import { Send, Hash, Volume2, Mic, MicOff, Volume, VolumeX, Settings, Smile, Reply, MoreHorizontal, ArrowDown, BookOpen, Plus, Upload } from 'lucide-react'
 import EmojiPicker from '@/components/EmojiPicker'
 import UserProfile from '@/components/UserProfile'
 import VCJoinModal from '@/components/VCJoinModal'
@@ -214,6 +214,8 @@ export default function Chat() {
   const navigate = useNavigate()
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const emojiPickerRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const plusMenuRef = useRef<HTMLDivElement>(null)
 
   const currentUser = { id: 'current-user', name: 'aiueo aiueioo', status: 'online' as const }
   
@@ -250,6 +252,9 @@ export default function Chat() {
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null)
   const [replyingToMessage, setReplyingToMessage] = useState<Message | null>(null)
   const [showPlusMenu, setShowPlusMenu] = useState(false)
+  const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
+  const [showSettingsModal, setShowSettingsModal] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<'profile' | 'account' | 'voice' | 'notifications'>('profile')
 
   const isDMRoute = channelId?.startsWith('dm-') ?? false
   const dmUserId = isDMRoute && channelId ? channelId.slice('dm-'.length) : null
@@ -282,6 +287,20 @@ export default function Chat() {
       return () => document.removeEventListener('mousedown', handleClickOutside)
     }
   }, [showEmojiPicker])
+
+  // Close plus menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (plusMenuRef.current && !plusMenuRef.current.contains(event.target as Node)) {
+        setShowPlusMenu(false)
+      }
+    }
+
+    if (showPlusMenu) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showPlusMenu])
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault()
@@ -538,6 +557,47 @@ export default function Chat() {
     setMessages([...messages, newMessage])
     setShowEmojiPicker(false)
     setEmojiPickerPosition(null)
+  }
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files) return
+
+    Array.from(files).forEach((file) => {
+      // Check if file type is allowed
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/zip', 'video/mp4', 'audio/mpeg']
+      if (!allowedTypes.includes(file.type)) {
+        console.warn(`File type not supported: ${file.type}`)
+        return
+      }
+
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const dataUrl = event.target?.result as string
+        const newMessage: Message = {
+          id: Date.now().toString(),
+          userId: 'current-user',
+          userName: 'aiueo aiueioo',
+          content: '',
+          timestamp: new Date(),
+          reactions: {},
+          file: {
+            name: file.name,
+            type: file.type,
+            size: file.size,
+            dataUrl: dataUrl,
+          },
+        }
+        setMessages([...messages, newMessage])
+      }
+      reader.readAsDataURL(file)
+    })
+
+    // Reset input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+    setShowPlusMenu(false)
   }
 
   const handleEmojiButtonClick = (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -824,6 +884,8 @@ export default function Chat() {
                                 content={message.content}
                                 messageId={message.id}
                                 embedMetaCache={embedMetaCache}
+                                file={message.file}
+                                onImageClick={setSelectedImageUrl}
                               />
                             </div>
 
@@ -937,7 +999,7 @@ export default function Chat() {
               )}
               <form className="message-input-form" onSubmit={handleSendMessage}>
             <div className="input-wrapper">
-              <div className="plus-menu-container">
+              <div className="plus-menu-container" ref={plusMenuRef}>
                 <Button 
                   type="button"
                   size="icon"
@@ -949,14 +1011,27 @@ export default function Chat() {
                 </Button>
                 {showPlusMenu && (
                   <div className="plus-menu">
-                    <button className="plus-menu-item plus-menu-item--disabled">
+                    <button 
+                      className="plus-menu-item"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <Upload size={16} />
                       <span>ファイルをアップロード</span>
                     </button>
                     <button className="plus-menu-item plus-menu-item--disabled">
+                      <span>📊</span>
                       <span>投票の作成</span>
                     </button>
                   </div>
                 )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept="image/*,.zip,video/mp4,audio/mpeg"
+                  onChange={handleFileUpload}
+                  style={{ display: 'none' }}
+                />
               </div>
               <Input
                 type="text"
@@ -1055,6 +1130,7 @@ export default function Chat() {
               size="icon"
               variant="ghost"
               className="control-button"
+              onClick={() => setShowSettingsModal(true)}
               title="Settings"
             >
               <Settings size={18} />
@@ -1074,6 +1150,253 @@ export default function Chat() {
           isCurrentUser={selectedUserId === 'current-user'}
           avatarSrc={getUserAvatar(selectedUserId)}
         />
+      )}
+
+      {/* Image Modal */}
+      {selectedImageUrl && (
+        <div 
+          className="image-modal-overlay"
+          onClick={() => setSelectedImageUrl(null)}
+        >
+          <div className="image-modal-content" onClick={(e) => e.stopPropagation()}>
+            <button 
+              className="image-modal-close"
+              onClick={() => setSelectedImageUrl(null)}
+            >
+              ✕
+            </button>
+            <img src={selectedImageUrl} alt="Expanded view" className="image-modal-image" />
+          </div>
+        </div>
+      )}
+
+      {/* Settings Modal */}
+      {showSettingsModal && (
+        <div 
+          className="settings-modal-overlay"
+          onClick={() => setShowSettingsModal(false)}
+        >
+          <div className="settings-modal-large" onClick={(e) => e.stopPropagation()}>
+            <div className="settings-sidebar">
+              <h2 className="settings-sidebar-title">設定</h2>
+              <div className="settings-nav">
+                <button 
+                  className={`settings-nav-item ${settingsTab === 'profile' ? 'active' : ''}`}
+                  onClick={() => setSettingsTab('profile')}
+                >
+                  プロフィール
+                </button>
+                <button 
+                  className={`settings-nav-item ${settingsTab === 'account' ? 'active' : ''}`}
+                  onClick={() => setSettingsTab('account')}
+                >
+                  アカウント
+                </button>
+                <button 
+                  className={`settings-nav-item ${settingsTab === 'voice' ? 'active' : ''}`}
+                  onClick={() => setSettingsTab('voice')}
+                >
+                  音声とビデオ
+                </button>
+                <button 
+                  className={`settings-nav-item ${settingsTab === 'notifications' ? 'active' : ''}`}
+                  onClick={() => setSettingsTab('notifications')}
+                >
+                  通知
+                </button>
+              </div>
+            </div>
+
+            <div className="settings-main">
+              <button 
+                className="settings-modal-close"
+                onClick={() => setShowSettingsModal(false)}
+              >
+                ✕
+              </button>
+
+              {settingsTab === 'profile' && (
+                <div className="settings-content">
+                  <div className="settings-profile-header">
+                    <div className="settings-profile-banner">
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        className="settings-file-input"
+                        id="banner-upload"
+                      />
+                      <label htmlFor="banner-upload" className="settings-banner-upload">
+                        <div className="settings-banner-overlay">
+                          <span>クリックで画像を選択</span>
+                        </div>
+                      </label>
+                    </div>
+
+                    <div className="settings-profile-avatar-wrapper">
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        className="settings-file-input"
+                        id="avatar-upload"
+                      />
+                      <label htmlFor="avatar-upload" className="settings-avatar-upload">
+                        <img 
+                          src={getUserAvatar(currentUser.id)} 
+                          alt="Profile" 
+                          className="settings-avatar-image"
+                        />
+                        <div className="settings-avatar-overlay">
+                          <span>変更</span>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="settings-form">
+                    <div className="settings-item">
+                      <label className="settings-label">表示名</label>
+                      <input 
+                        type="text" 
+                        className="settings-input" 
+                        defaultValue="aiueo aiueioo"
+                        placeholder="表示名を入力"
+                      />
+                    </div>
+
+                    <div className="settings-item">
+                      <label className="settings-label">ステータス</label>
+                      <input 
+                        type="text" 
+                        className="settings-input" 
+                        defaultValue="あーほ"
+                        placeholder="ステータスメッセージ"
+                      />
+                    </div>
+
+                    <div className="settings-item">
+                      <label className="settings-label">自己紹介</label>
+                      <textarea 
+                        className="settings-textarea" 
+                        rows={4}
+                        defaultValue="Mingle hamatiii"
+                        placeholder="自己紹介を入力してください"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {settingsTab === 'account' && (
+                <div className="settings-content">
+                  <h2 className="settings-content-title">アカウント設定</h2>
+                  
+                  <div className="settings-form">
+                    <div className="settings-item">
+                      <label className="settings-label">ユーザーID <span className="settings-label-hint">変更不可</span></label>
+                      <input 
+                        type="text" 
+                        className="settings-input" 
+                        defaultValue="user_4cd9001d"
+                        disabled
+                      />
+                    </div>
+
+                    <div className="settings-item">
+                      <label className="settings-label">パスワード</label>
+                      <button className="settings-button-secondary">
+                        パスワードを変更
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {settingsTab === 'voice' && (
+                <div className="settings-content">
+                  <h2 className="settings-content-title">音声とビデオ</h2>
+                  
+                  <div className="settings-form">
+                    <div className="settings-item">
+                      <label className="settings-label">入力デバイス</label>
+                      <select className="settings-select">
+                        <option>デフォルト</option>
+                        <option>マイク 1</option>
+                        <option>マイク 2</option>
+                      </select>
+                    </div>
+
+                    <div className="settings-item">
+                      <label className="settings-label">出力デバイス</label>
+                      <select className="settings-select">
+                        <option>デフォルト</option>
+                        <option>スピーカー 1</option>
+                        <option>スピーカー 2</option>
+                      </select>
+                    </div>
+
+                    <div className="settings-item">
+                      <label className="settings-label">入力音量</label>
+                      <input 
+                        type="range" 
+                        className="settings-slider" 
+                        min="0" 
+                        max="100" 
+                        defaultValue="80"
+                      />
+                    </div>
+
+                    <div className="settings-item">
+                      <label className="settings-label">出力音量</label>
+                      <input 
+                        type="range" 
+                        className="settings-slider" 
+                        min="0" 
+                        max="100" 
+                        defaultValue="80"
+                      />
+                    </div>
+
+                    <div className="settings-item">
+                      <button className="settings-button-primary">
+                        申請リクエストを送信
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {settingsTab === 'notifications' && (
+                <div className="settings-content">
+                  <h2 className="settings-content-title">通知設定</h2>
+                  
+                  <div className="settings-form">
+                    <div className="settings-item">
+                      <label className="settings-checkbox-label">
+                        <input type="checkbox" className="settings-checkbox" defaultChecked />
+                        <span>サウンド通知を有効にする</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="settings-footer">
+                <button 
+                  className="settings-cancel-button"
+                  onClick={() => setShowSettingsModal(false)}
+                >
+                  キャンセル
+                </button>
+                <button 
+                  className="settings-save-button"
+                  onClick={() => setShowSettingsModal(false)}
+                >
+                  保存
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

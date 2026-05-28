@@ -25,4 +25,10 @@ export type Message = {
     userName: string
     content: string
   }
+  file?: {
+    name: string
+    type: string
+    size: number
+    dataUrl: string
+  }
 }

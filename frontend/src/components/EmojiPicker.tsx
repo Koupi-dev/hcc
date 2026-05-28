@@ -207,8 +207,8 @@ export default function EmojiPicker({ onSelect, keepOpenOnSelect = false, onGifS
     setIsLoadingGifs(true);
     try {
       const endpoint = query 
-        ? `https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(query)}&key=${TENOR_API_KEY}&limit=20`
-        : `https://tenor.googleapis.com/v2/featured?key=${TENOR_API_KEY}&limit=20`;
+        ? `https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(query)}&key=${TENOR_API_KEY}&limit=20&contentfilter=off`
+        : `https://tenor.googleapis.com/v2/featured?key=${TENOR_API_KEY}&limit=20&contentfilter=off`;
       
       const response = await fetch(endpoint);
       const data = await response.json();
@@ -237,8 +237,8 @@ export default function EmojiPicker({ onSelect, keepOpenOnSelect = false, onGifS
     try {
       const query = gifSearchQuery;
       const endpoint = query 
-        ? `https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(query)}&key=${TENOR_API_KEY}&limit=20&pos=${gifNextPos}`
-        : `https://tenor.googleapis.com/v2/featured?key=${TENOR_API_KEY}&limit=20&pos=${gifNextPos}`;
+        ? `https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(query)}&key=${TENOR_API_KEY}&limit=20&pos=${gifNextPos}&contentfilter=off`
+        : `https://tenor.googleapis.com/v2/featured?key=${TENOR_API_KEY}&limit=20&pos=${gifNextPos}&contentfilter=off`;
       
       const response = await fetch(endpoint);
       const data = await response.json();

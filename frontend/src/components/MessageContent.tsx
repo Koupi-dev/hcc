@@ -1,5 +1,8 @@
 import { useMemo } from 'react'
 import VideoEmbed from './VideoEmbed'
+import CustomVideoPlayer from './CustomVideoPlayer'
+import CustomAudioPlayer from './CustomAudioPlayer'
+import type { Message } from '@/types/chat'
 
 type EmbedInfo = {
   type: 'youtube' | 'twitch' | 'gif'
@@ -11,6 +14,8 @@ interface MessageContentProps {
   content: string
   messageId: string
   embedMetaCache: Map<string, { title?: string; author?: string }>
+  file?: Message['file']
+  onImageClick?: (imageUrl: string) => void
 }
 
 const extractYouTubeId = (url: string): string | null => {
@@ -57,7 +62,7 @@ const getTwemojiUrl = (emoji: string) => {
   return `https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/72x72/${filtered.join('-')}.png`
 }
 
-export default function MessageContent({ content, messageId, embedMetaCache }: MessageContentProps) {
+export default function MessageContent({ content, messageId, embedMetaCache, file, onImageClick }: MessageContentProps) {
   const rendered = useMemo(() => {
     const urlRegex = /(https?:\/\/[^\s]+)/g
     const parts = content.split(urlRegex)
@@ -117,6 +122,36 @@ export default function MessageContent({ content, messageId, embedMetaCache }: M
           embedMetaCache={embedMetaCache}
         />
       ))}
+      {file && (
+        <div className="file-embed">
+          {file.type.startsWith('image/') && (
+            <img 
+              src={file.dataUrl} 
+              alt={file.name} 
+              className="file-embed-image"
+              onClick={() => onImageClick?.(file.dataUrl)}
+            />
+          )}
+          {file.type === 'video/mp4' && (
+            <CustomVideoPlayer src={file.dataUrl} />
+          )}
+          {file.type === 'audio/mpeg' && (
+            <CustomAudioPlayer src={file.dataUrl} fileName={file.name} />
+          )}
+          {file.type === 'application/zip' && (
+            <div className="file-embed-zip">
+              <div className="file-embed-icon">📦</div>
+              <div className="file-embed-info">
+                <div className="file-embed-name">{file.name}</div>
+                <div className="file-embed-size">{(file.size / 1024 / 1024).toFixed(2)} MB</div>
+              </div>
+              <a href={file.dataUrl} download={file.name} className="file-embed-download">
+                ダウンロード
+              </a>
+            </div>
+          )}
+        </div>
+      )}
     </>
   )
 }
