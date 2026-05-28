@@ -34,7 +34,7 @@ export default function VCConnectionInfo({ channelName, onDisconnect }: VCConnec
       <div className="vc-connection-header">
         <Volume2 size={16} className="vc-connection-icon" />
         <div className="vc-connection-details">
-          <span className="vc-connection-label">ボイスチャンネル接続中</span>
+          <span className="vc-connection-label">接続中</span>
           <span className="vc-connection-channel">{channelName}</span>
         </div>
       </div>

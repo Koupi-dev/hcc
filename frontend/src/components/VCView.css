@@ -1,0 +1,525 @@
+/* ═══════════════════════════════════════════
+   VCView – Main Layout
+   ═══════════════════════════════════════════ */
+.vc-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background-color: #f8f9fa;
+  overflow: hidden;
+}
+
+.vc-view__main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* ═══════════════════════════════════════════
+   Participant Tile (共通)
+   ═══════════════════════════════════════════ */
+.vc-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 20px;
+  background: #ffffff;
+  border-radius: 16px;
+  border: 2px solid transparent;
+  transition: transform 0.2s, box-shadow 0.2s, border-color 0.3s;
+  cursor: default;
+  position: relative;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+
+.vc-tile:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.08);
+}
+
+.vc-tile--self {
+  background: #f0f2f5;
+  border-color: #5865f2;
+}
+
+.vc-tile__video-area {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vc-tile__avatar {
+  background-color: #5865f2;
+  color: #fff;
+}
+
+.vc-tile__info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  flex-direction: column;
+}
+
+.vc-tile__name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #2e3338;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.vc-tile__badges {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.vc-tile__badge {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vc-tile__badge--muted {
+  background-color: #f23f42;
+  color: #fff;
+}
+
+.vc-tile__badge--sharing {
+  background-color: #5865f2;
+  color: #fff;
+}
+
+/* ═══════════════════════════════════════════
+   Tile Grid (通常モード)
+   ═══════════════════════════════════════════ */
+.vc-grid {
+  display: grid;
+  gap: 20px;
+  max-width: 1200px;
+  width: 100%;
+}
+
+.vc-grid.vc-size-1 {
+  grid-template-columns: 1fr;
+  max-width: 420px;
+}
+.vc-grid.vc-size-1 .vc-tile { padding: 40px; }
+.vc-grid.vc-size-1 .vc-tile__avatar { width: 200px; height: 200px; font-size: 64px; }
+.vc-grid.vc-size-1 .vc-tile__name { font-size: 22px; }
+
+.vc-grid.vc-size-2 {
+  grid-template-columns: repeat(2, 1fr);
+  max-width: 700px;
+}
+.vc-grid.vc-size-2 .vc-tile { padding: 32px; }
+.vc-grid.vc-size-2 .vc-tile__avatar { width: 160px; height: 160px; font-size: 48px; }
+.vc-grid.vc-size-2 .vc-tile__name { font-size: 18px; }
+
+.vc-grid.vc-size-3-4 {
+  grid-template-columns: repeat(2, 1fr);
+  max-width: 800px;
+}
+.vc-grid.vc-size-3-4 .vc-tile { padding: 24px; }
+.vc-grid.vc-size-3-4 .vc-tile__avatar { width: 130px; height: 130px; font-size: 40px; }
+.vc-grid.vc-size-3-4 .vc-tile__name { font-size: 16px; }
+
+.vc-grid.vc-size-5-6 {
+  grid-template-columns: repeat(3, 1fr);
+  max-width: 960px;
+}
+.vc-grid.vc-size-5-6 .vc-tile { padding: 18px; }
+.vc-grid.vc-size-5-6 .vc-tile__avatar { width: 110px; height: 110px; font-size: 34px; }
+
+.vc-grid.vc-size-7-9 {
+  grid-template-columns: repeat(3, 1fr);
+  max-width: 1000px;
+}
+.vc-grid.vc-size-7-9 .vc-tile { padding: 14px; }
+.vc-grid.vc-size-7-9 .vc-tile__avatar { width: 90px; height: 90px; font-size: 28px; }
+.vc-grid.vc-size-7-9 .vc-tile__name { font-size: 13px; }
+
+.vc-grid.vc-size-many {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  max-width: 1200px;
+}
+.vc-grid.vc-size-many .vc-tile { padding: 12px; }
+.vc-grid.vc-size-many .vc-tile__avatar { width: 72px; height: 72px; font-size: 22px; }
+.vc-grid.vc-size-many .vc-tile__name { font-size: 12px; }
+
+/* ═══════════════════════════════════════════
+   Screen Share Layout (画面共有モード)
+   ═══════════════════════════════════════════ */
+.vc-view--screen-share-mode .vc-view__main {
+  padding: 0;
+}
+
+.vc-screenshare-layout {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  gap: 0;
+}
+
+.vc-screenshare__content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: #1a1a2e;
+  position: relative;
+}
+
+/* タブ */
+.vc-screenshare__tabs {
+  display: none;
+}
+
+/* ナビゲーション */
+.vc-screenshare__nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #1a1a2e;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  flex-shrink: 0;
+}
+
+.vc-screenshare__nav-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: #b5bac1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.vc-screenshare__nav-btn:hover {
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+}
+
+.vc-screenshare__nav-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 200px;
+  justify-content: center;
+}
+
+.vc-screenshare__nav-name {
+  font-size: 13px;
+  color: #dbdee1;
+  font-weight: 500;
+}
+
+.vc-screenshare__nav-count {
+  font-size: 12px;
+  color: #949ba4;
+}
+
+/* 映像コンテナ */
+.vc-screenshare__video-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.vc-screenshare__video {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+/* プレースホルダー */
+.vc-screenshare__placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  color: #8e9297;
+}
+
+.vc-screenshare__placeholder-icon {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.04);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #5865f2;
+  animation: vc-screen-pulse 3s ease-in-out infinite;
+}
+
+@keyframes vc-screen-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(88,101,242,0.2); }
+  50%      { box-shadow: 0 0 0 20px rgba(88,101,242,0); }
+}
+
+.vc-screenshare__placeholder-label {
+  font-size: 20px;
+  font-weight: 600;
+  color: #dcddde;
+}
+
+.vc-screenshare__placeholder-sub {
+  font-size: 14px;
+  color: #72767d;
+}
+
+/* オーバーレイ */
+.vc-screenshare__overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: linear-gradient(transparent, rgba(0,0,0,0.6));
+  opacity: 0;
+  transition: opacity 0.25s;
+  pointer-events: none;
+}
+
+.vc-screenshare__video-container:hover .vc-screenshare__overlay {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.vc-screenshare__overlay-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.vc-screenshare__overlay-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.vc-screenshare__overlay-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.15);
+  border: none;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.vc-screenshare__overlay-btn:hover {
+  background: rgba(255,255,255,0.3);
+}
+
+/* サイドバー */
+.vc-screenshare__sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  background: #ffffff;
+  border-left: 1px solid #e3e5e8;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.vc-screenshare__sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #5f6368;
+  border-bottom: 1px solid #e3e5e8;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+
+.vc-screenshare__sidebar-tiles {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.vc-screenshare__sidebar-tiles::-webkit-scrollbar {
+  width: 4px;
+}
+.vc-screenshare__sidebar-tiles::-webkit-scrollbar-thumb {
+  background: #d1d4d8;
+  border-radius: 2px;
+}
+
+/* List variant tiles (サイドパネル用) */
+.vc-tile--list {
+  flex-direction: row;
+  padding: 8px 10px;
+  gap: 8px;
+  border-radius: 8px;
+  cursor: default;
+  background: #ffffff;
+  border: 1px solid transparent;
+}
+
+.vc-tile--list .vc-tile__video-area {
+  flex-shrink: 0;
+}
+
+.vc-tile--list .vc-tile__avatar {
+  width: 32px;
+  height: 32px;
+  font-size: 12px;
+}
+
+.vc-tile--list .vc-tile__info {
+  flex: 1;
+  min-width: 0;
+  flex-direction: row;
+}
+
+.vc-tile--list .vc-tile__name {
+  font-size: 13px;
+}
+
+.vc-tile--list .vc-tile__badge {
+  width: 16px;
+  height: 16px;
+}
+
+.vc-tile--list .vc-tile__badge svg {
+  width: 10px;
+  height: 10px;
+}
+
+.vc-tile--list:hover {
+  transform: none;
+  background: #f2f3f5;
+}
+
+/* ═══════════════════════════════════════════
+   Control Bar (下部コントロール)
+   ═══════════════════════════════════════════ */
+.vc-controlbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 24px;
+  background: #ffffff;
+  border-top: 1px solid #e3e5e8;
+  flex-shrink: 0;
+  box-shadow: 0 -2px 8px rgba(0,0,0,0.03);
+}
+
+.vc-controlbar__left,
+.vc-controlbar__right {
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.vc-controlbar__right {
+  justify-content: flex-end;
+}
+
+.vc-controlbar__channel-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: #2e3338;
+}
+
+.vc-controlbar__participant-count {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 12px;
+  font-size: 13px;
+  color: #80848e;
+  font-weight: 500;
+}
+
+.vc-controlbar__center {
+  display: flex;
+  gap: 10px;
+}
+
+.vc-controlbar__btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #f2f3f5;
+  color: #2e3338;
+  transition: all 0.2s;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+
+.vc-controlbar__btn:hover {
+  background: #e3e5e8;
+  transform: scale(1.06);
+}
+
+.vc-controlbar__btn--danger {
+  background: #f23f42;
+  color: #fff;
+}
+
+.vc-controlbar__btn--danger:hover {
+  background: #dc2626;
+}
+
+.vc-controlbar__btn--active {
+  background: #5865f2;
+  color: #fff;
+}
+
+.vc-controlbar__btn--active:hover {
+  background: #4752c4;
+}
+
+.vc-controlbar__btn--disconnect {
+  background: #f23f42;
+  color: #fff;
+}
+
+.vc-controlbar__btn--disconnect:hover {
+  background: #dc2626;
+}

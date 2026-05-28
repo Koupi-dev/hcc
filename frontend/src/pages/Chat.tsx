@@ -4,89 +4,262 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { Send, Hash, Volume2, Mic, MicOff, Volume, VolumeX, Settings, Smile, Reply, MoreHorizontal, ArrowDown, BookOpen } from 'lucide-react'
+import { Send, Hash, Volume2, Mic, MicOff, Volume, VolumeX, Settings, Smile, Reply, MoreHorizontal, ArrowDown, BookOpen, Plus } from 'lucide-react'
 import EmojiPicker from '@/components/EmojiPicker'
 import UserProfile from '@/components/UserProfile'
 import VCJoinModal from '@/components/VCJoinModal'
-import VCParticipantList from '@/components/VCParticipantList'
 import VCConnectionInfo from '@/components/VCConnectionInfo'
 import VCView from '@/components/VCView'
 import MessageContent from '@/components/MessageContent'
+import { useVoiceChannel } from '@/hooks/useVoiceChannel'
+import { useVCParticipants } from '@/hooks/useVCParticipants'
+import { getUserAvatar, getInitials } from '@/lib/avatars'
+import { channels, dmUsers } from '@/data/mockData'
+import type { Message } from '@/types/chat'
 import jaruImage from '@/assets/jaru.webp'
 import './Chat.css'
 
 // API response cache to prevent duplicate requests
 const embedMetaCache = new Map<string, { title?: string; author?: string }>()
 
-type Channel = {
-  id: string
-  name: string
-  displayName: string
-  category: 'text' | 'vc'
-  participants?: string[] // VC参加者のユーザーID
-}
+// SE 生成関数 (Discord風)
+const playSound = (type: 'toggle' | 'connect' | 'disconnect' | 'screenShareOn' | 'screenShareOff' | 'micOn' | 'micOff' | 'speakerOn' | 'speakerOff') => {
+  try {
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+    const now = audioContext.currentTime
 
-const channels: Channel[] = [
-  { id: 'rule', name: 'rule', displayName: 'ルール', category: 'text' },
-  { id: 'jarujaru', name: 'jarujaru', displayName: 'ジャルジャル', category: 'text' },
-  { id: 'general', name: 'general', displayName: '全般', category: 'text' },
-  { id: 'vc1', name: 'vc1', displayName: 'VC 1', category: 'vc', participants: ['5', '7'] },
-  { id: 'vc2', name: 'vc2', displayName: 'VC 2', category: 'vc', participants: [] },
-  { id: 'vc3', name: 'vc3', displayName: 'VC 3', category: 'vc', participants: ['6'] },
-]
+    if (type === 'micOn') {
+      // マイクON: 上昇する2音 (低い周波数)
+      const frequencies = [349.23, 440] // F4, A4
+      const startTimes = [0, 0.08]
 
-type User = {
-  id: string
-  name: string
-  status: 'online' | 'offline'
-}
+      frequencies.forEach((freq, index) => {
+        const osc = audioContext.createOscillator()
+        const gain = audioContext.createGain()
+        osc.type = 'sine'
+        osc.connect(gain)
+        gain.connect(audioContext.destination)
+        osc.frequency.value = freq
+        
+        const startTime = now + startTimes[index]
+        gain.gain.setValueAtTime(0.25, startTime)
+        gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.08)
+        osc.start(startTime)
+        osc.stop(startTime + 0.08)
+      })
+    } else if (type === 'micOff') {
+      // マイクOFF: 下降する2音 (低い周波数)
+      const frequencies = [440, 349.23] // A4, F4
+      const startTimes = [0, 0.08]
 
-const dmUsers: User[] = [
-  { id: '5', name: 'Friend1', status: 'online' },
-  { id: '6', name: 'Friend2', status: 'offline' },
-  { id: '7', name: 'Friend3', status: 'online' },
-]
+      frequencies.forEach((freq, index) => {
+        const osc = audioContext.createOscillator()
+        const gain = audioContext.createGain()
+        osc.type = 'sine'
+        osc.connect(gain)
+        gain.connect(audioContext.destination)
+        osc.frequency.value = freq
+        
+        const startTime = now + startTimes[index]
+        gain.gain.setValueAtTime(0.25, startTime)
+        gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.08)
+        osc.start(startTime)
+        osc.stop(startTime + 0.08)
+      })
+    } else if (type === 'speakerOn') {
+      // スピーカーON: 上昇する2音 (低い周波数)
+      const frequencies = [440, 523.25] // A4, C5
+      const startTimes = [0, 0.08]
 
-type Message = {
-  id: string
-  userId: string
-  userName: string
-  content: string
-  timestamp: Date
+      frequencies.forEach((freq, index) => {
+        const osc = audioContext.createOscillator()
+        const gain = audioContext.createGain()
+        osc.type = 'sine'
+        osc.connect(gain)
+        gain.connect(audioContext.destination)
+        osc.frequency.value = freq
+        
+        const startTime = now + startTimes[index]
+        gain.gain.setValueAtTime(0.25, startTime)
+        gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.08)
+        osc.start(startTime)
+        osc.stop(startTime + 0.08)
+      })
+    } else if (type === 'speakerOff') {
+      // スピーカーOFF: 下降する2音 (低い周波数)
+      const frequencies = [523.25, 440] // C5, A4
+      const startTimes = [0, 0.08]
+
+      frequencies.forEach((freq, index) => {
+        const osc = audioContext.createOscillator()
+        const gain = audioContext.createGain()
+        osc.type = 'sine'
+        osc.connect(gain)
+        gain.connect(audioContext.destination)
+        osc.frequency.value = freq
+        
+        const startTime = now + startTimes[index]
+        gain.gain.setValueAtTime(0.25, startTime)
+        gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.08)
+        osc.start(startTime)
+        osc.stop(startTime + 0.08)
+      })
+    } else if (type === 'screenShareOn') {
+      // 画面共有ON: てれれれれれん (上昇する5音、低い周波数)
+      const frequencies = [349.23, 392, 440, 523.25, 659.25] // F4, G4, A4, C5, E5
+      const startTimes = [0, 0.08, 0.16, 0.24, 0.32]
+
+      frequencies.forEach((freq, index) => {
+        const osc = audioContext.createOscillator()
+        const gain = audioContext.createGain()
+        osc.type = 'sine'
+        osc.connect(gain)
+        gain.connect(audioContext.destination)
+        osc.frequency.value = freq
+        
+        const startTime = now + startTimes[index]
+        gain.gain.setValueAtTime(0.25, startTime)
+        gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.08)
+        osc.start(startTime)
+        osc.stop(startTime + 0.08)
+      })
+    } else if (type === 'screenShareOff') {
+      // 画面共有OFF: てれれれれれん (下降する5音、低い周波数)
+      const frequencies = [659.25, 523.25, 440, 392, 349.23] // E5, C5, A4, G4, F4
+      const startTimes = [0, 0.08, 0.16, 0.24, 0.32]
+
+      frequencies.forEach((freq, index) => {
+        const osc = audioContext.createOscillator()
+        const gain = audioContext.createGain()
+        osc.type = 'sine'
+        osc.connect(gain)
+        gain.connect(audioContext.destination)
+        osc.frequency.value = freq
+        
+        const startTime = now + startTimes[index]
+        gain.gain.setValueAtTime(0.25, startTime)
+        gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.08)
+        osc.start(startTime)
+        osc.stop(startTime + 0.08)
+      })
+    } else if (type === 'toggle') {
+      // 汎用トグル音: 2つの周波数が連続する気持ちいい音 (低い周波数)
+      const osc1 = audioContext.createOscillator()
+      const gain1 = audioContext.createGain()
+      osc1.type = 'sine'
+      osc1.connect(gain1)
+      gain1.connect(audioContext.destination)
+      osc1.frequency.value = 349.23 // F4
+      gain1.gain.setValueAtTime(0.25, now)
+      gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.08)
+      osc1.start(now)
+      osc1.stop(now + 0.08)
+
+      const osc2 = audioContext.createOscillator()
+      const gain2 = audioContext.createGain()
+      osc2.type = 'sine'
+      osc2.connect(gain2)
+      gain2.connect(audioContext.destination)
+      osc2.frequency.value = 440 // A4
+      gain2.gain.setValueAtTime(0.25, now + 0.05)
+      gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.13)
+      osc2.start(now + 0.05)
+      osc2.stop(now + 0.13)
+    } else if (type === 'connect') {
+      // 接続音: 上昇する3音の連続 (低い周波数)
+      const frequencies = [349.23, 440, 523.25] // F4, A4, C5
+      const startTimes = [0, 0.1, 0.2]
+
+      frequencies.forEach((freq, index) => {
+        const osc = audioContext.createOscillator()
+        const gain = audioContext.createGain()
+        osc.type = 'sine'
+        osc.connect(gain)
+        gain.connect(audioContext.destination)
+        osc.frequency.value = freq
+        
+        const startTime = now + startTimes[index]
+        gain.gain.setValueAtTime(0.25, startTime)
+        gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.12)
+        osc.start(startTime)
+        osc.stop(startTime + 0.12)
+      })
+    } else if (type === 'disconnect') {
+      // 切断音: 下降する3音の連続 (低い周波数)
+      const frequencies = [523.25, 440, 349.23] // C5, A4, F4
+      const startTimes = [0, 0.1, 0.2]
+
+      frequencies.forEach((freq, index) => {
+        const osc = audioContext.createOscillator()
+        const gain = audioContext.createGain()
+        osc.type = 'sine'
+        osc.connect(gain)
+        gain.connect(audioContext.destination)
+        osc.frequency.value = freq
+        
+        const startTime = now + startTimes[index]
+        gain.gain.setValueAtTime(0.25, startTime)
+        gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.12)
+        osc.start(startTime)
+        osc.stop(startTime + 0.12)
+      })
+    }
+  } catch (error) {
+    console.error('SE 再生エラー:', error)
+  }
 }
 
 export default function Chat() {
   const { channelId } = useParams<{ channelId: string }>()
   const navigate = useNavigate()
   const scrollAreaRef = useRef<HTMLDivElement>(null)
+  const emojiPickerRef = useRef<HTMLDivElement>(null)
+
+  const currentUser = { id: 'current-user', name: 'aiueo aiueioo', status: 'online' as const }
+  
+  // Voice Channel State
+  const {
+    isConnectedToVC,
+    connectedVCChannel,
+    showVCModal,
+    pendingVCChannel,
+    isMicOn,
+    isSpeakerOn,
+    requestJoinVC,
+    joinVC,
+    switchVCChannel,
+    disconnectVC,
+    closeVCModal,
+    toggleMic,
+    toggleSpeaker,
+  } = useVoiceChannel()
+
+  // VC participants (single async-managed state)
+  const { membersByChannelId, addMember, removeMember } = useVCParticipants()
+  
+  // UI State
   const [showScrollButton, setShowScrollButton] = useState(false)
+  const [isScreenSharing, setIsScreenSharing] = useState(false)
   const [messages, setMessages] = useState<Message[]>([])
   const [inputValue, setInputValue] = useState('')
-  const [isMicOn, setIsMicOn] = useState(true)
-  const [isSpeakerOn, setIsSpeakerOn] = useState(true)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [emojiPickerPosition, setEmojiPickerPosition] = useState<{ top: number; left: number } | null>(null)
   const [emojiPickerMode, setEmojiPickerMode] = useState<'input' | 'reaction'>('input')
+  const [reactionTargetMessageId, setReactionTargetMessageId] = useState<string | null>(null)
   const [showUserProfile, setShowUserProfile] = useState(false)
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null)
-  const [showVCModal, setShowVCModal] = useState(false)
-  const [pendingVCChannel, setPendingVCChannel] = useState<Channel | null>(null)
-  const [isConnectedToVC, setIsConnectedToVC] = useState(false)
-  const [connectedVCChannel, setConnectedVCChannel] = useState<Channel | null>(null)
-  const emojiPickerRef = useRef<HTMLDivElement>(null)
+  const [replyingToMessage, setReplyingToMessage] = useState<Message | null>(null)
+  const [showPlusMenu, setShowPlusMenu] = useState(false)
 
-  const selectedChannel = channels.find(c => c.id === channelId) || channels[0]
-
-  // ユーザーIDに基づいてアバター画像を返す関数
-  const getUserAvatar = (userId: string) => {
-    const avatarMap: { [key: string]: string } = {
-      'current-user': '/avatar-current.png',
-      '5': '/avatar-1.png',
-      '6': '/avatar-2.png',
-      '7': '/avatar-3.png',
-    }
-    return avatarMap[userId] || '/default-avatar.png'
-  }
+  const isDMRoute = channelId?.startsWith('dm-') ?? false
+  const dmUserId = isDMRoute && channelId ? channelId.slice('dm-'.length) : null
+  const dmUser =
+    (dmUserId ? dmUsers.find(u => u.id === dmUserId) : null) ??
+    (dmUserId === currentUser.id ? currentUser : null)
+  const dmDisplayName = dmUser ? `# ${dmUser.name}` : '# dm-name'
+  const selectedChannel = !isDMRoute
+    ? channels.find(c => c.id === channelId) || channels[0]
+    : channels[0]
 
   useEffect(() => {
     if (!channelId) {
@@ -100,6 +273,7 @@ export default function Chat() {
       if (emojiPickerRef.current && !emojiPickerRef.current.contains(event.target as Node)) {
         setShowEmojiPicker(false)
         setEmojiPickerPosition(null)
+        setReactionTargetMessageId(null)
       }
     }
 
@@ -116,13 +290,21 @@ export default function Chat() {
     const newMessage: Message = {
       id: Date.now().toString(),
       userId: 'current-user',
-      userName: 'You',
+      userName: 'aiueo aiueioo',
       content: inputValue,
       timestamp: new Date(),
+      reactions: {},
+      replyTo: replyingToMessage ? {
+        id: replyingToMessage.id,
+        userId: replyingToMessage.userId,
+        userName: replyingToMessage.userName,
+        content: replyingToMessage.content,
+      } : undefined,
     }
 
     setMessages([...messages, newMessage])
     setInputValue('')
+    setReplyingToMessage(null)
   }
 
   const getViewport = () => {
@@ -179,55 +361,64 @@ export default function Chat() {
     }
   }, [messages])
 
+  const handleToggleScreenShare = () => {
+    setIsScreenSharing(!isScreenSharing)
+  }
+
   const handleChannelClick = (channelId: string) => {
     const channel = channels.find(c => c.id === channelId)
     if (channel?.category === 'vc') {
-      // VCチャンネルの場合
-      if (isConnectedToVC && connectedVCChannel?.id === channelId) {
-        // 既に接続中のVCチャンネルをクリックした場合は何もしない
+      if (isConnectedToVC) {
+        if (connectedVCChannel?.id === channelId) {
+          // すでに接続済みのVCに戻った場合は、保留中の確認モーダルを閉じる
+          closeVCModal()
+          navigate(`/chat/${channelId}`)
+          return
+        }
+
+        // 接続中に別VCへ移る場合も確認画面を出す
+        requestJoinVC(channel)
         navigate(`/chat/${channelId}`)
-      } else if (isConnectedToVC) {
-        // 別のVCチャンネルに接続しようとした場合は確認画面を表示
-        setPendingVCChannel(channel)
-        setShowVCModal(true)
-        navigate(`/chat/${channelId}`)
-      } else {
-        // 未接続の場合は確認画面を表示
-        setPendingVCChannel(channel)
-        setShowVCModal(true)
-        navigate(`/chat/${channelId}`)
+        return
       }
+
+      requestJoinVC(channel)
+      navigate(`/chat/${channelId}`)
     } else {
-      // テキストチャンネルの場合は通常通り遷移
+      // テキストチャンネルをクリックした場合、VCモーダルを閉じる
+      closeVCModal()
       navigate(`/chat/${channelId}`)
     }
   }
 
   const handleJoinVC = () => {
     if (pendingVCChannel) {
-      setIsConnectedToVC(true)
-      setConnectedVCChannel(pendingVCChannel)
-      setShowVCModal(false)
-      setPendingVCChannel(null)
+      if (connectedVCChannel && connectedVCChannel.id !== pendingVCChannel.id) {
+        removeMember(connectedVCChannel.id, currentUser.id)
+      }
+      addMember(pendingVCChannel.id, currentUser.id)
+      if (isConnectedToVC) {
+        switchVCChannel(pendingVCChannel)
+        playSound('connect')
+        return
+      }
     }
+    playSound('connect')
+    joinVC()
   }
 
   const handleDisconnectVC = () => {
-    setIsConnectedToVC(false)
-    setConnectedVCChannel(null)
-    // テキストチャンネルに戻る
+    if (connectedVCChannel) {
+      removeMember(connectedVCChannel.id, currentUser.id)
+    }
+    playSound('disconnect')
+    disconnectVC()
     navigate(`/chat/${channels[0].id}`)
   }
 
   const handleCloseVCModal = () => {
-    setShowVCModal(false)
-    setPendingVCChannel(null)
-    // テキストチャンネルに戻る
+    closeVCModal()
     navigate(`/chat/${channels[0].id}`)
-  }
-
-  const getInitials = (name: string) => {
-    return name.slice(0, 2).toUpperCase()
   }
 
   const formatFullTime = (date: Date) => {
@@ -269,7 +460,7 @@ export default function Chat() {
     return `${yyyy}/${mm}/${dd}`
   }
 
-  const handleUserClick = (userId: string, userName: string) => {
+  const handleUserClick = (userId: string) => {
     setSelectedUserId(userId)
     setShowUserProfile(true)
   }
@@ -280,8 +471,8 @@ export default function Chat() {
   }
 
   const handleDMUserClick = (userId: string) => {
-    setSelectedUserId(userId)
-    setShowUserProfile(true)
+    // DMは「チャンネル欄」ではなく個別のDMスレッドへ遷移させる
+    navigate(`/chat/dm-${userId}`)
   }
 
   const handleOwnProfileClick = () => {
@@ -297,9 +488,38 @@ export default function Chat() {
   }
 
   const handleMessageEmojiSelect = (emoji: string) => {
-    // For message reactions, close after selection
-    console.log('Selected emoji for reaction:', emoji)
-    // TODO: Add reaction to message
+    if (!reactionTargetMessageId) {
+      setShowEmojiPicker(false)
+      setEmojiPickerPosition(null)
+      return
+    }
+
+    const currentUserId = 'current-user'
+
+    setMessages(prev =>
+      prev.map(message => {
+        if (message.id !== reactionTargetMessageId) return message
+
+        const currentReactions = message.reactions ?? {}
+        const existingUserIds = currentReactions[emoji] ?? []
+        const hasReacted = existingUserIds.includes(currentUserId)
+
+        const nextUserIds = hasReacted
+          ? existingUserIds.filter(id => id !== currentUserId)
+          : [...existingUserIds, currentUserId]
+
+        const nextReactions: Record<string, string[]> = { ...currentReactions }
+        if (nextUserIds.length === 0) {
+          delete nextReactions[emoji]
+        } else {
+          nextReactions[emoji] = nextUserIds
+        }
+
+        return { ...message, reactions: nextReactions }
+      }),
+    )
+
+    setReactionTargetMessageId(null)
     setShowEmojiPicker(false)
     setEmojiPickerPosition(null)
   }
@@ -309,9 +529,10 @@ export default function Chat() {
     const newMessage: Message = {
       id: Date.now().toString(),
       userId: 'current-user',
-      userName: 'You',
+      userName: 'aiueo aiueioo',
       content: gifUrl,
       timestamp: new Date(),
+      reactions: {},
     }
 
     setMessages([...messages, newMessage])
@@ -328,7 +549,6 @@ export default function Chat() {
     }
     
     const rect = event.currentTarget.getBoundingClientRect()
-    const viewportHeight = window.innerHeight
     const viewportWidth = window.innerWidth
     
     // Calculate position to keep picker in viewport
@@ -355,16 +575,19 @@ export default function Chat() {
     setShowEmojiPicker(true)
   }
 
-  const handleMessageEmojiClick = (event: React.MouseEvent<HTMLButtonElement>) => {
-    if (showEmojiPicker && emojiPickerMode === 'reaction') {
-      // Already open for reaction, close it
+  const handleMessageEmojiClick = (messageId: string, event: React.MouseEvent<HTMLButtonElement>) => {
+    const isSameTarget = showEmojiPicker && emojiPickerMode === 'reaction' && reactionTargetMessageId === messageId
+    setReactionTargetMessageId(messageId)
+
+    if (isSameTarget) {
+      // Toggle off when clicking same target reaction button again
       setShowEmojiPicker(false)
       setEmojiPickerPosition(null)
+      setReactionTargetMessageId(null)
       return
     }
     
     const rect = event.currentTarget.getBoundingClientRect()
-    const viewportHeight = window.innerHeight
     const viewportWidth = window.innerWidth
     
     // Calculate position
@@ -391,6 +614,11 @@ export default function Chat() {
 
   const textChannels = channels.filter(c => c.category === 'text')
   const vcChannels = channels.filter(c => c.category === 'vc')
+
+  const viewingVCChannel = selectedChannel.category === 'vc' ? selectedChannel : null
+  const viewingMemberIds = viewingVCChannel ? (membersByChannelId[viewingVCChannel.id] ?? []) : []
+  const currentUserInViewingVC = viewingMemberIds.includes(currentUser.id)
+  const viewingOtherParticipants = dmUsers.filter(user => viewingMemberIds.includes(user.id))
 
   return (
     <div className={`chat-container ${showUserProfile ? 'profile-open' : ''}`}>
@@ -458,12 +686,22 @@ export default function Chat() {
                     <Volume2 size={16} className="channel-icon" />
                     <span className="channel-path">{channel.displayName}</span>
                   </button>
-                  <VCParticipantList 
-                    participants={channel.participants || []}
-                    users={dmUsers}
-                    getInitials={getInitials}
-                    getUserAvatar={getUserAvatar}
-                  />
+                  {(membersByChannelId[channel.id] ?? []).length > 0 && (
+                    <div className="vc-participants">
+                      {(membersByChannelId[channel.id] ?? []).map((userId) => {
+                        const user = dmUsers.find(u => u.id === userId) || (userId === currentUser.id ? currentUser : null)
+                        return user ? (
+                          <div key={userId} className="vc-participant">
+                            <Avatar className="vc-participant-avatar">
+                              <AvatarImage src={getUserAvatar(userId)} alt={user.name} />
+                              <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
+                            </Avatar>
+                            <span className="vc-participant-name">{user.name}</span>
+                          </div>
+                        ) : null
+                      })}
+                    </div>
+                  )}
                 </div>
               ))}
             </nav>
@@ -475,41 +713,53 @@ export default function Chat() {
       <main className="main-content">
         <header className="chat-header">
           <div className="chat-header-content">
-            {selectedChannel.category === 'vc' ? (
-              <Volume2 size={20} className="header-icon" />
+            {isDMRoute ? (
+              <>
+                <Hash size={20} className="header-icon" />
+                <h1>{dmDisplayName}</h1>
+              </>
             ) : (
-              <Hash size={20} className="header-icon" />
+              <>
+                {selectedChannel.category === 'vc' ? (
+                  <Volume2 size={20} className="header-icon" />
+                ) : (
+                  <Hash size={20} className="header-icon" />
+                )}
+                <h1>{selectedChannel.displayName}</h1>
+              </>
             )}
-            <h1>{selectedChannel.displayName}</h1>
           </div>
         </header>
 
-        {showVCModal && pendingVCChannel ? (
+        {!isDMRoute && showVCModal && pendingVCChannel ? (
           <div className="vc-join-container">
             <VCJoinModal
               channelName={pendingVCChannel.displayName}
               isMicOn={isMicOn}
               isSpeakerOn={isSpeakerOn}
-              onToggleMic={() => setIsMicOn(!isMicOn)}
-              onToggleSpeaker={() => setIsSpeakerOn(!isSpeakerOn)}
+              onToggleMic={toggleMic}
+              onToggleSpeaker={toggleSpeaker}
               onJoin={handleJoinVC}
               onClose={handleCloseVCModal}
               isInline={true}
             />
           </div>
-        ) : isConnectedToVC && connectedVCChannel ? (
+        ) : !isDMRoute && isConnectedToVC && selectedChannel.category === 'vc' && viewingVCChannel ? (
           <VCView
-            channelName={connectedVCChannel.displayName}
-            participants={dmUsers.filter(user => 
-              connectedVCChannel.participants?.includes(user.id)
-            )}
-            currentUser={{ id: 'current-user', name: 'You', status: 'online' }}
-            isMicOn={isMicOn}
-            isSpeakerOn={isSpeakerOn}
-            onToggleMic={() => setIsMicOn(!isMicOn)}
-            onToggleSpeaker={() => setIsSpeakerOn(!isSpeakerOn)}
-            getInitials={getInitials}
-            getUserAvatar={getUserAvatar}
+              channelName={viewingVCChannel.displayName}
+              participants={viewingOtherParticipants}
+              currentUser={currentUser}
+              currentUserInChannel={currentUserInViewingVC}
+              isMicOn={isMicOn}
+              isSpeakerOn={isSpeakerOn}
+              isScreenSharing={isScreenSharing}
+              isParticipantScreenSharing={{}}
+              onToggleMic={toggleMic}
+              onToggleSpeaker={toggleSpeaker}
+              onToggleScreenShare={handleToggleScreenShare}
+              onDisconnect={handleDisconnectVC}
+              getInitials={getInitials}
+              getUserAvatar={getUserAvatar}
           />
         ) : (
           <>
@@ -547,10 +797,10 @@ export default function Chat() {
                           )}
                           <div className="message-body">
                             {!isConsecutive && (
-                              <div className="message-header">
+                          <div className="message-header">
                                 <div 
                                   className="message-author-group"
-                                  onClick={() => handleUserClick(message.userId, message.userName)}
+                                  onClick={() => handleUserClick(message.userId)}
                                 >
                                   <Avatar className="message-avatar clickable-avatar">
                                     <AvatarImage src={getUserAvatar(message.userId)} alt={message.userName} />
@@ -564,12 +814,64 @@ export default function Chat() {
                               </div>
                             )}
                             <div className={`message-content ${!isConsecutive ? 'indented-content' : ''}`}>
+                              {message.replyTo && (
+                                <div className="message-reply-quote">
+                                  <div className="reply-quote-user">{message.replyTo.userName}</div>
+                                  <div className="reply-quote-text">{message.replyTo.content}</div>
+                                </div>
+                              )}
                               <MessageContent 
                                 content={message.content}
                                 messageId={message.id}
                                 embedMetaCache={embedMetaCache}
                               />
                             </div>
+
+                            {message.reactions && Object.keys(message.reactions).length > 0 && (
+                              <div className="message-reactions">
+                                {Object.entries(message.reactions).map(([emoji, userIds]) => {
+                                  const safeUserIds = userIds ?? []
+                                  const hasReacted = safeUserIds.includes('current-user')
+
+                                  return (
+                                    <button
+                                      key={emoji}
+                                      type="button"
+                                      className={`reaction-pill ${hasReacted ? 'reacted' : ''}`}
+                                      onClick={() => {
+                                        setReactionTargetMessageId(message.id)
+                                        setMessages(prev =>
+                                          prev.map(m => {
+                                            if (m.id !== message.id) return m
+
+                                            const currentReactions = m.reactions ?? {}
+                                            const existingUserIds = currentReactions[emoji] ?? []
+                                            const already = existingUserIds.includes('current-user')
+
+                                            const nextUserIds = already
+                                              ? existingUserIds.filter(id => id !== 'current-user')
+                                              : [...existingUserIds, 'current-user']
+
+                                            const nextReactions: Record<string, string[]> = { ...currentReactions }
+                                            if (nextUserIds.length === 0) {
+                                              delete nextReactions[emoji]
+                                            } else {
+                                              nextReactions[emoji] = nextUserIds
+                                            }
+
+                                            return { ...m, reactions: nextReactions }
+                                          }),
+                                        )
+                                      }}
+                                      title={hasReacted ? 'リアクションを削除' : 'リアクションを追加'}
+                                    >
+                                      <span className="reaction-emoji">{emoji}</span>
+                                      <span className="reaction-count">{safeUserIds.length}</span>
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            )}
                           </div>
                           <div className="message-actions">
                             <Button
@@ -577,7 +879,7 @@ export default function Chat() {
                               variant="ghost"
                               className="message-action-button"
                               title="リアクション"
-                              onClick={handleMessageEmojiClick}
+                              onClick={(e) => handleMessageEmojiClick(message.id, e)}
                             >
                               <Smile size={18} />
                             </Button>
@@ -586,6 +888,7 @@ export default function Chat() {
                               variant="ghost"
                               className="message-action-button"
                               title="返信"
+                              onClick={() => setReplyingToMessage(message)}
                             >
                               <Reply size={18} />
                             </Button>
@@ -616,12 +919,49 @@ export default function Chat() {
             </button>
 
             <div className="message-input-container">
+              {replyingToMessage && (
+                <div className="reply-preview">
+                  <div className="reply-preview-content">
+                    <span className="reply-preview-label">返信中:</span>
+                    <span className="reply-preview-user">{replyingToMessage.userName}</span>
+                    <span className="reply-preview-text">{replyingToMessage.content}</span>
+                  </div>
+                  <button
+                    className="reply-preview-close"
+                    onClick={() => setReplyingToMessage(null)}
+                    title="キャンセル"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
               <form className="message-input-form" onSubmit={handleSendMessage}>
             <div className="input-wrapper">
+              <div className="plus-menu-container">
+                <Button 
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="plus-button"
+                  onClick={() => setShowPlusMenu(!showPlusMenu)}
+                >
+                  <Plus size={20} />
+                </Button>
+                {showPlusMenu && (
+                  <div className="plus-menu">
+                    <button className="plus-menu-item plus-menu-item--disabled">
+                      <span>ファイルをアップロード</span>
+                    </button>
+                    <button className="plus-menu-item plus-menu-item--disabled">
+                      <span>投票の作成</span>
+                    </button>
+                  </div>
+                )}
+              </div>
               <Input
                 type="text"
                 className="message-input"
-                placeholder={`${selectedChannel.displayName} にメッセージを送信`}
+                placeholder={`${isDMRoute ? dmDisplayName : selectedChannel.displayName} にメッセージを送信`}
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
               />
@@ -685,11 +1025,11 @@ export default function Chat() {
             onClick={handleOwnProfileClick}
           >
             <Avatar className="profile-avatar">
-              <AvatarImage src={getUserAvatar('current-user')} alt="You" />
-              <AvatarFallback>YO</AvatarFallback>
+              <AvatarImage src={getUserAvatar('current-user')} alt="aiueo aiueioo" />
+              <AvatarFallback>AA</AvatarFallback>
             </Avatar>
             <div className="profile-info">
-              <span className="profile-name">You</span>
+              <span className="profile-name">aiueo aiueioo</span>
             </div>
           </div>
           <div className="control-buttons">
@@ -697,7 +1037,7 @@ export default function Chat() {
               size="icon"
               variant="ghost"
               className={`control-button ${!isMicOn ? 'muted' : ''}`}
-              onClick={() => setIsMicOn(!isMicOn)}
+              onClick={toggleMic}
               title={isMicOn ? 'Mute' : 'Unmute'}
             >
               {isMicOn ? <Mic size={18} /> : <MicOff size={18} />}
@@ -706,7 +1046,7 @@ export default function Chat() {
               size="icon"
               variant="ghost"
               className={`control-button ${!isSpeakerOn ? 'muted' : ''}`}
-              onClick={() => setIsSpeakerOn(!isSpeakerOn)}
+              onClick={toggleSpeaker}
               title={isSpeakerOn ? 'Deafen' : 'Undeafen'}
             >
               {isSpeakerOn ? <Volume size={18} /> : <VolumeX size={18} />}
@@ -723,33 +1063,13 @@ export default function Chat() {
         </div>
       </div>
 
-      {/* VC Connection Info - Above User Profile */}
-      {isConnectedToVC && connectedVCChannel && (
-        <div className="vc-connection-info-panel">
-          <VCConnectionInfo
-            channelName={connectedVCChannel.displayName}
-            onDisconnect={handleDisconnectVC}
-          />
-        </div>
-      )}
-
-      {/* VC Connection Info - Above User Profile */}
-      {isConnectedToVC && connectedVCChannel && (
-        <div className="vc-connection-info-panel">
-          <VCConnectionInfo
-            channelName={connectedVCChannel.displayName}
-            onDisconnect={handleDisconnectVC}
-          />
-        </div>
-      )}
-
       {/* User Profile Panel */}
       {showUserProfile && selectedUserId && (
         <UserProfile
           userId={selectedUserId}
-          userName={selectedUserId === 'current-user' ? 'You' : dmUsers.find(u => u.id === selectedUserId)?.name || 'User'}
-          status={selectedUserId === 'current-user' ? 'コーディング中...' : '今日はいい天気ですね！'}
-          bio={selectedUserId === 'current-user' ? 'フロントエンド開発者です。\nReactとTypeScriptが好きです。' : 'よろしくお願いします！'}
+          userName={selectedUserId === 'current-user' ? 'aiueo aiueioo' : dmUsers.find(u => u.id === selectedUserId)?.name || 'User'}
+          status={selectedUserId === 'current-user' ? 'あーほ' : '今日はいい天気ですね！'}
+          bio={selectedUserId === 'current-user' ? 'Mingle hamatiii' : 'よろしくお願いします！'}
           onClose={handleCloseProfile}
           isCurrentUser={selectedUserId === 'current-user'}
           avatarSrc={getUserAvatar(selectedUserId)}

@@ -1,4 +1,3 @@
-import { Button } from "@/components/ui/button"
 import { Mic, MicOff, Volume, VolumeX } from 'lucide-react'
 
 interface VCJoinModalProps {
@@ -27,31 +26,27 @@ export default function VCJoinModal({
       <div className="vc-join-inline">
         <h2 className="vc-join-title">{channelName}</h2>
         <p className="vc-join-description">
-          マイク・スピーカーが正しく設定されているかを確認してから参加しましょう。マイクが無い場合も自由に参加できます。
+          マイク・スピーカーの設定を確認してから参加してください
         </p>
         <div className="vc-join-controls">
-          <Button
-            size="icon"
-            variant="ghost"
-            className={`vc-join-control-button ${!isMicOn ? 'muted' : ''}`}
+          <button
+            className={`vc-join-control-button ${isMicOn ? 'active' : 'inactive'}`}
             onClick={onToggleMic}
-            title={isMicOn ? 'Mute' : 'Unmute'}
+            title={isMicOn ? 'ミュート' : 'ミュート解除'}
           >
             {isMicOn ? <Mic size={32} /> : <MicOff size={32} />}
-          </Button>
-          <Button
-            size="icon"
-            variant="ghost"
-            className={`vc-join-control-button ${!isSpeakerOn ? 'muted' : ''}`}
+          </button>
+          <button
+            className={`vc-join-control-button ${isSpeakerOn ? 'active' : 'inactive'}`}
             onClick={onToggleSpeaker}
-            title={isSpeakerOn ? 'Deafen' : 'Undeafen'}
+            title={isSpeakerOn ? 'スピーカーをミュート' : 'スピーカーのミュート解除'}
           >
             {isSpeakerOn ? <Volume size={32} /> : <VolumeX size={32} />}
-          </Button>
+          </button>
         </div>
-        <Button className="vc-join-button" onClick={onJoin}>
-          準備OK!
-        </Button>
+        <button className="vc-join-button" onClick={onJoin}>
+          参加する
+        </button>
       </div>
     )
   }
@@ -61,31 +56,27 @@ export default function VCJoinModal({
       <div className="vc-modal" onClick={(e) => e.stopPropagation()}>
         <h2 className="vc-modal-title">{channelName}</h2>
         <p className="vc-modal-description">
-          マイク・スピーカーが正しく設定されているかを確認してから参加しましょう。マイクが無い場合も自由に参加できます。
+          マイク・スピーカーの設定を確認してから参加してください
         </p>
         <div className="vc-modal-controls">
-          <Button
-            size="icon"
-            variant="ghost"
-            className={`vc-modal-control-button ${!isMicOn ? 'muted' : ''}`}
+          <button
+            className={`vc-modal-control-button ${isMicOn ? 'active' : 'inactive'}`}
             onClick={onToggleMic}
-            title={isMicOn ? 'Mute' : 'Unmute'}
+            title={isMicOn ? 'ミュート' : 'ミュート解除'}
           >
             {isMicOn ? <Mic size={24} /> : <MicOff size={24} />}
-          </Button>
-          <Button
-            size="icon"
-            variant="ghost"
-            className={`vc-modal-control-button ${!isSpeakerOn ? 'muted' : ''}`}
+          </button>
+          <button
+            className={`vc-modal-control-button ${isSpeakerOn ? 'active' : 'inactive'}`}
             onClick={onToggleSpeaker}
-            title={isSpeakerOn ? 'Deafen' : 'Undeafen'}
+            title={isSpeakerOn ? 'スピーカーをミュート' : 'スピーカーのミュート解除'}
           >
             {isSpeakerOn ? <Volume size={24} /> : <VolumeX size={24} />}
-          </Button>
+          </button>
         </div>
-        <Button className="vc-modal-join-button" onClick={onJoin}>
-          準備OK!
-        </Button>
+        <button className="vc-modal-join-button" onClick={onJoin}>
+          参加する
+        </button>
       </div>
     </div>
   )
