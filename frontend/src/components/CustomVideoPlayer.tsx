@@ -6,7 +6,7 @@ interface CustomVideoPlayerProps {
   src: string
 }
 
-export default function CustomVideoPlayer({ src, fileName }: CustomVideoPlayerProps) {
+export default function CustomVideoPlayer({ src }: CustomVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)

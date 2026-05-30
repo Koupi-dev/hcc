@@ -19,6 +19,8 @@ interface VCViewProps {
   isSpeakerOn: boolean
   isScreenSharing: boolean
   isParticipantScreenSharing?: Record<string, boolean>
+  mutedUsers?: Set<string>
+  speakingUsers?: Set<string>
   onToggleMic: () => void
   onToggleSpeaker: () => void
   onToggleScreenShare: () => void
@@ -27,186 +29,96 @@ interface VCViewProps {
   getUserAvatar: (userId: string) => string
 }
 
-// SE 生成関数 (Discord風)
+// SE 生成関数 (以前のシンプルなピュアサイン音のよさを活かしつつ、間の音を追加して滑らかにしたバージョン)
 const playSound = (type: 'toggle' | 'connect' | 'disconnect' | 'screenShareOn' | 'screenShareOff' | 'micOn' | 'micOff' | 'speakerOn' | 'speakerOff') => {
   try {
     const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
     const now = audioContext.currentTime
 
-    if (type === 'micOn') {
-      // マイクON: 上昇する2音 (低い周波数)
-      const frequencies = [349.23, 440] // F4, A4
-      const startTimes = [0, 0.08]
+    // 以前のシンプルな「サイン波ピープ音」の質感を維持しつつ、
+    // クリック音（ポップノイズ）を完全に無くし、スムーズに聴こえるように最適化した再生ヘルパー
+    const playBeep = (freq: number, startTime: number, duration: number = 0.08) => {
+      const osc = audioContext.createOscillator()
+      const gain = audioContext.createGain()
+      osc.type = 'sine'
+      osc.connect(gain)
+      gain.connect(audioContext.destination)
+      osc.frequency.value = freq
 
+      const targetStartTime = now + startTime
+      // アタックとリリースを僅かに入れることでプツプツ感を解消
+      gain.gain.setValueAtTime(0, targetStartTime)
+      gain.gain.linearRampToValueAtTime(0.20, targetStartTime + 0.008)
+      gain.gain.setValueAtTime(0.20, targetStartTime + duration - 0.015)
+      gain.gain.exponentialRampToValueAtTime(0.0001, targetStartTime + duration)
+
+      osc.start(targetStartTime)
+      // ゲインが完全に0になった直後にオシレーターを停止
+      osc.stop(targetStartTime + duration + 0.02)
+    }
+
+    if (type === 'micOn') {
+      // マイクON: F4 (349.23) から A4 (440.00) の「間」の音として G4 (392.00) を追加してスムーズに
+      const frequencies = [349.23, 392.00, 440.00]
+      const startTimes = [0, 0.05, 0.10]
       frequencies.forEach((freq, index) => {
-        const osc = audioContext.createOscillator()
-        const gain = audioContext.createGain()
-        osc.type = 'sine'
-        osc.connect(gain)
-        gain.connect(audioContext.destination)
-        osc.frequency.value = freq
-        
-        const startTime = now + startTimes[index]
-        gain.gain.setValueAtTime(0.25, startTime)
-        gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.08)
-        osc.start(startTime)
-        osc.stop(startTime + 0.08)
+        playBeep(freq, startTimes[index], 0.06)
       })
     } else if (type === 'micOff') {
-      // マイクOFF: 下降する2音 (低い周波数)
-      const frequencies = [440, 349.23] // A4, F4
-      const startTimes = [0, 0.08]
-
+      // マイクOFF: A4 (440.00) から F4 (349.23) の「間」の音として G4 (392.00) を追加してスムーズに
+      const frequencies = [440.00, 392.00, 349.23]
+      const startTimes = [0, 0.05, 0.10]
       frequencies.forEach((freq, index) => {
-        const osc = audioContext.createOscillator()
-        const gain = audioContext.createGain()
-        osc.type = 'sine'
-        osc.connect(gain)
-        gain.connect(audioContext.destination)
-        osc.frequency.value = freq
-        
-        const startTime = now + startTimes[index]
-        gain.gain.setValueAtTime(0.25, startTime)
-        gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.08)
-        osc.start(startTime)
-        osc.stop(startTime + 0.08)
+        playBeep(freq, startTimes[index], 0.06)
       })
     } else if (type === 'speakerOn') {
-      // スピーカーON: 上昇する2音 (低い周波数)
-      const frequencies = [440, 523.25] // A4, C5
-      const startTimes = [0, 0.08]
-
+      // スピーカーON: A4 (440.00) から C5 (523.25) の「間」の音として B4 (493.88) を追加
+      const frequencies = [440.00, 493.88, 523.25]
+      const startTimes = [0, 0.05, 0.10]
       frequencies.forEach((freq, index) => {
-        const osc = audioContext.createOscillator()
-        const gain = audioContext.createGain()
-        osc.type = 'sine'
-        osc.connect(gain)
-        gain.connect(audioContext.destination)
-        osc.frequency.value = freq
-        
-        const startTime = now + startTimes[index]
-        gain.gain.setValueAtTime(0.25, startTime)
-        gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.08)
-        osc.start(startTime)
-        osc.stop(startTime + 0.08)
+        playBeep(freq, startTimes[index], 0.06)
       })
     } else if (type === 'speakerOff') {
-      // スピーカーOFF: 下降する2音 (低い周波数)
-      const frequencies = [523.25, 440] // C5, A4
-      const startTimes = [0, 0.08]
-
+      // スピーカーOFF: C5 (523.25) から A4 (440.00) の「間」の音として B4 (493.88) を追加
+      const frequencies = [523.25, 493.88, 440.00]
+      const startTimes = [0, 0.05, 0.10]
       frequencies.forEach((freq, index) => {
-        const osc = audioContext.createOscillator()
-        const gain = audioContext.createGain()
-        osc.type = 'sine'
-        osc.connect(gain)
-        gain.connect(audioContext.destination)
-        osc.frequency.value = freq
-        
-        const startTime = now + startTimes[index]
-        gain.gain.setValueAtTime(0.25, startTime)
-        gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.08)
-        osc.start(startTime)
-        osc.stop(startTime + 0.08)
+        playBeep(freq, startTimes[index], 0.06)
       })
-    } else if (type === 'screenShareOn') {
-      // 画面共有ON: てれれれれれん (上昇する5音)
-      const frequencies = [523.25, 587.33, 659.25, 783.99, 987.77] // C5, D5, E5, G5, B5
-      const startTimes = [0, 0.08, 0.16, 0.24, 0.32]
-
-      frequencies.forEach((freq, index) => {
-        const osc = audioContext.createOscillator()
-        const gain = audioContext.createGain()
-        osc.type = 'sine'
-        osc.connect(gain)
-        gain.connect(audioContext.destination)
-        osc.frequency.value = freq
-        
-        const startTime = now + startTimes[index]
-        gain.gain.setValueAtTime(0.25, startTime)
-        gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.08)
-        osc.start(startTime)
-        osc.stop(startTime + 0.08)
-      })
-    } else if (type === 'screenShareOff') {
-      // 画面共有OFF: てれれれれれん (下降する5音)
-      const frequencies = [987.77, 783.99, 659.25, 587.33, 523.25] // B5, G5, E5, D5, C5
-      const startTimes = [0, 0.08, 0.16, 0.24, 0.32]
-
-      frequencies.forEach((freq, index) => {
-        const osc = audioContext.createOscillator()
-        const gain = audioContext.createGain()
-        osc.type = 'sine'
-        osc.connect(gain)
-        gain.connect(audioContext.destination)
-        osc.frequency.value = freq
-        
-        const startTime = now + startTimes[index]
-        gain.gain.setValueAtTime(0.25, startTime)
-        gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.08)
-        osc.start(startTime)
-        osc.stop(startTime + 0.08)
-      })
-    } else if (type === 'toggle') {
-      // 汎用トグル音: 2つの周波数が連続する気持ちいい音 (低い周波数)
-      const osc1 = audioContext.createOscillator()
-      const gain1 = audioContext.createGain()
-      osc1.type = 'sine'
-      osc1.connect(gain1)
-      gain1.connect(audioContext.destination)
-      osc1.frequency.value = 349.23 // F4
-      gain1.gain.setValueAtTime(0.25, now)
-      gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.08)
-      osc1.start(now)
-      osc1.stop(now + 0.08)
-
-      const osc2 = audioContext.createOscillator()
-      const gain2 = audioContext.createGain()
-      osc2.type = 'sine'
-      osc2.connect(gain2)
-      gain2.connect(audioContext.destination)
-      osc2.frequency.value = 440 // A4
-      gain2.gain.setValueAtTime(0.25, now + 0.05)
-      gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.13)
-      osc2.start(now + 0.05)
-      osc2.stop(now + 0.13)
     } else if (type === 'connect') {
-      // 接続音: 上昇する3音の連続 (低い周波数)
-      const frequencies = [349.23, 440, 523.25] // F4, A4, C5
-      const startTimes = [0, 0.1, 0.2]
-
+      // 接続音: F4➔A4➔C5 の「間」の音として G4 と B4 を追加して5つの階梯で美しく駆け上がる
+      const frequencies = [349.23, 392.00, 440.00, 493.88, 523.25]
+      const startTimes = [0, 0.06, 0.12, 0.18, 0.24]
       frequencies.forEach((freq, index) => {
-        const osc = audioContext.createOscillator()
-        const gain = audioContext.createGain()
-        osc.type = 'sine'
-        osc.connect(gain)
-        gain.connect(audioContext.destination)
-        osc.frequency.value = freq
-        
-        const startTime = now + startTimes[index]
-        gain.gain.setValueAtTime(0.25, startTime)
-        gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.12)
-        osc.start(startTime)
-        osc.stop(startTime + 0.12)
+        playBeep(freq, startTimes[index], 0.08)
       })
     } else if (type === 'disconnect') {
-      // 切断音: 下降する3音の連続 (低い周波数)
-      const frequencies = [523.25, 440, 349.23] // C5, A4, F4
-      const startTimes = [0, 0.1, 0.2]
-
+      // 切断音: C5➔A4➔F4 の「間」の音として B4 と G4 を追加して5つの階梯で美しく降りる
+      const frequencies = [523.25, 493.88, 440.00, 392.00, 349.23]
+      const startTimes = [0, 0.06, 0.12, 0.18, 0.24]
       frequencies.forEach((freq, index) => {
-        const osc = audioContext.createOscillator()
-        const gain = audioContext.createGain()
-        osc.type = 'sine'
-        osc.connect(gain)
-        gain.connect(audioContext.destination)
-        osc.frequency.value = freq
-        
-        const startTime = now + startTimes[index]
-        gain.gain.setValueAtTime(0.25, startTime)
-        gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.12)
-        osc.start(startTime)
-        osc.stop(startTime + 0.12)
+        playBeep(freq, startTimes[index], 0.08)
+      })
+    } else if (type === 'screenShareOn') {
+      // 画面共有ON: ピュアサイン波の軽快な上昇
+      const frequencies = [523.25, 587.33, 659.25, 783.99, 987.77]
+      const startTimes = [0, 0.06, 0.12, 0.18, 0.24]
+      frequencies.forEach((freq, index) => {
+        playBeep(freq, startTimes[index], 0.08)
+      })
+    } else if (type === 'screenShareOff') {
+      // 画面共有OFF: ピュアサイン波の軽快な下降
+      const frequencies = [987.77, 783.99, 659.25, 587.33, 523.25]
+      const startTimes = [0, 0.06, 0.12, 0.18, 0.24]
+      frequencies.forEach((freq, index) => {
+        playBeep(freq, startTimes[index], 0.08)
+      })
+    } else if (type === 'toggle') {
+      // 汎用トグル音: シンプルな2音のピュアサイン波
+      const frequencies = [349.23, 440.00]
+      const startTimes = [0, 0.05]
+      frequencies.forEach((freq, index) => {
+        playBeep(freq, startTimes[index], 0.06)
       })
     }
   } catch (error) {
@@ -223,6 +135,8 @@ export default function VCView({
   isSpeakerOn,
   isScreenSharing,
   isParticipantScreenSharing = {},
+  mutedUsers = new Set(),
+  speakingUsers = new Set(),
   onToggleMic,
   onToggleSpeaker,
   onToggleScreenShare,
@@ -234,6 +148,8 @@ export default function VCView({
   const [selectedScreenShareUserIndex, setSelectedScreenShareUserIndex] = useState(0)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [showParticipantList, setShowParticipantList] = useState(true)
+  const [contextMenu, setContextMenu] = useState<{ userId: string; x: number; y: number } | null>(null)
+  const [userVolumes, setUserVolumes] = useState<Record<string, number>>({})
   const videoRef = useRef<HTMLVideoElement>(null)
   const screenShareContainerRef = useRef<HTMLDivElement>(null)
   const isRequestingScreenShare = useRef(false)
@@ -361,6 +277,61 @@ export default function VCView({
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
   }, [])
 
+  // コンテキストメニューを閉じる
+  useEffect(() => {
+    const handleClick = () => setContextMenu(null)
+    const handleScroll = () => setContextMenu(null)
+    
+    if (contextMenu) {
+      document.addEventListener('click', handleClick)
+      document.addEventListener('scroll', handleScroll, true)
+      return () => {
+        document.removeEventListener('click', handleClick)
+        document.removeEventListener('scroll', handleScroll, true)
+      }
+    }
+  }, [contextMenu])
+
+  // 右クリックハンドラー
+  const handleContextMenu = (e: React.MouseEvent, userId: string) => {
+    e.preventDefault()
+    const menuWidth = 220 // コンテキストメニューの幅
+    const menuHeight = 120 // コンテキストメニューの高さ（概算）
+    
+    // 左側に表示（画面左端に近い場合は右側に）
+    let x = e.clientX - menuWidth - 10
+    if (x < 10) {
+      x = e.clientX + 10
+    }
+    
+    // 画面下端を超える場合は上に調整
+    let y = e.clientY
+    if (y + menuHeight > window.innerHeight) {
+      y = window.innerHeight - menuHeight - 10
+    }
+    
+    setContextMenu({
+      userId,
+      x,
+      y
+    })
+  }
+
+  // 音量変更ハンドラー
+  const handleVolumeChange = (userId: string, volume: number) => {
+    setUserVolumes(prev => ({
+      ...prev,
+      [userId]: volume
+    }))
+    // ここで実際の音量調整処理を行う
+    // 例: WebRTC の audio track の volume を調整
+  }
+
+  // ユーザーの音量を取得（デフォルトは100%）
+  const getUserVolume = (userId: string) => {
+    return userVolumes[userId] ?? 100
+  }
+
   // 参加人数に応じてサイズクラスを決定
   const getSizeClass = () => {
     if (participantCount === 1) return 'vc-size-1'
@@ -374,13 +345,15 @@ export default function VCView({
   // 参加者タイルの描画
   const renderParticipantTile = (user: User, variant: 'grid' | 'list') => {
     const isSelf = user.id === currentUser.id
-    const isMuted = isSelf ? !isMicOn : false
+    const isMuted = isSelf ? !isMicOn : mutedUsers.has(user.id)
+    const isSpeaking = isSelf ? isMicOn && !mutedUsers.has(user.id) && Math.random() < 0.3 : speakingUsers.has(user.id)
     const isUserScreenSharing = allSharingUsers.includes(user.id)
 
     return (
       <div 
         key={user.id} 
-        className={`vc-tile vc-tile--${variant} ${isSelf ? 'vc-tile--self' : ''}`}
+        className={`vc-tile vc-tile--${variant} ${isSelf ? 'vc-tile--self' : ''} ${isSpeaking ? 'vc-tile--speaking' : ''}`}
+        onContextMenu={(e) => handleContextMenu(e, user.id)}
       >
         <div className="vc-tile__video-area">
           <Avatar className="vc-tile__avatar">
@@ -395,6 +368,11 @@ export default function VCView({
             {isMuted && (
               <span className="vc-tile__badge vc-tile__badge--muted" title="ミュート中">
                 <MicOff size={12} />
+              </span>
+            )}
+            {!isMuted && isSpeaking && (
+              <span className="vc-tile__badge vc-tile__badge--speaking" title="発話中">
+                <Mic size={12} />
               </span>
             )}
             {isUserScreenSharing && (
@@ -587,6 +565,37 @@ export default function VCView({
           </Button>
         </div>
       </div>
+
+      {/* ────── コンテキストメニュー（音量調節） ────── */}
+      {contextMenu && (
+        <div
+          className="vc-context-menu"
+          style={{
+            left: `${contextMenu.x}px`,
+            top: `${contextMenu.y}px`
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="vc-context-menu__header">
+            {allParticipants.find(u => u.id === contextMenu.userId)?.name}
+          </div>
+          <div className="vc-context-menu__content">
+            <div className="vc-context-menu__label">
+              <Volume size={14} />
+              <span>音量</span>
+              <span className="vc-context-menu__value">{getUserVolume(contextMenu.userId)}%</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="200"
+              value={getUserVolume(contextMenu.userId)}
+              onChange={(e) => handleVolumeChange(contextMenu.userId, Number(e.target.value))}
+              className="vc-context-menu__slider"
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

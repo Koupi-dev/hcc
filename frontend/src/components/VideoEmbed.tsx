@@ -75,6 +75,8 @@ const VideoEmbed = memo(({ embed, messageId, embedIndex, embedMetaCache }: Video
       rel="noopener noreferrer"
       className="video-embed"
       style={{ borderLeftColor: borderColor }}
+      data-message-id={messageId}
+      data-embed-index={embedIndex}
     >
       <div className="video-embed-body">
         <span className="video-embed-source">

@@ -1,5 +1,6 @@
 export type Channel = {
   id: string
+  internalId: string  // 20桁の数字のみの固有ID（内部操作用）
   name: string
   displayName: string
   category: 'text' | 'vc'
@@ -8,6 +9,7 @@ export type Channel = {
 
 export type User = {
   id: string
+  internalId: string  // 20桁の数字のみの固有ID（内部操作用）
   name: string
   status: 'online' | 'offline'
 }

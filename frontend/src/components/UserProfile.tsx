@@ -9,26 +9,30 @@ interface UserProfileProps {
   onClose: () => void;
   isCurrentUser?: boolean;
   avatarSrc?: string;
+  hideCloseButton?: boolean;
 }
 
 export default function UserProfile({ 
-  userId, 
+  userId,
   userName, 
   status = 'オンライン中', 
   bio = '',
   onClose,
   isCurrentUser = false,
-  avatarSrc = '/default-avatar.png'
+  avatarSrc = '/default-avatar.png',
+  hideCloseButton = false
 }: UserProfileProps) {
   const getInitials = (name: string) => {
     return name.slice(0, 2).toUpperCase();
   };
 
   return (
-    <div className="user-profile-panel">
-      <button className="user-profile-close" onClick={onClose}>
-        <X size={20} />
-      </button>
+    <div className="user-profile-panel" data-user-id={userId}>
+      {!hideCloseButton && (
+        <button className="user-profile-close" onClick={onClose}>
+          <X size={20} />
+        </button>
+      )}
 
       <div className="user-profile-content">
         <div className="user-profile-header">
@@ -48,7 +52,14 @@ export default function UserProfile({
         </div>
 
         <div className="user-profile-info">
-          <h2 className="user-profile-name">{userName}</h2>
+          <h2 className="user-profile-name">
+            {userName}
+            {isCurrentUser && (
+              <span className="user-profile-my-tag" style={{ marginLeft: '8px', fontSize: '12px', padding: '2px 6px', background: '#5865f2', color: '#fff', borderRadius: '4px', verticalAlign: 'middle' }}>
+                あなた
+              </span>
+            )}
+          </h2>
 
           {bio && (
             <div className="user-profile-section">

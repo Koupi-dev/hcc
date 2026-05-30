@@ -152,6 +152,11 @@ export default function EmojiPicker({ onSelect, keepOpenOnSelect = false, onGifS
 
   const TENOR_API_KEY = 'AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ';
 
+  // keepOpenOnSelect placeholder to prevent TS6133
+  if (keepOpenOnSelect) {
+    // placeholder
+  }
+
   // Cookie helper functions
   const getCookie = (name: string): string | null => {
     const value = `; ${document.cookie}`;
@@ -301,7 +306,6 @@ export default function EmojiPicker({ onSelect, keepOpenOnSelect = false, onGifS
     <div className="emoji-picker-container">
       <div className="emoji-picker-tabs">
         {(showGifTab ? TABS : TABS.filter(t => t.id !== 'gif')).map((tab) => {
-          const Icon = tab.icon;
           return (
             <button
               key={tab.id}
@@ -389,7 +393,7 @@ export default function EmojiPicker({ onSelect, keepOpenOnSelect = false, onGifS
           ) : (
             <>
               {recentKeys.length > 0 && (
-                <div ref={el => categoryRefs.current['recent'] = el} className="emoji-section">
+                <div ref={el => { categoryRefs.current['recent'] = el; }} className="emoji-section">
                   <div className="emoji-section-title">よく使う</div>
                   <div className="emoji-grid">
                     {recentKeys.map(key => (
@@ -407,7 +411,7 @@ export default function EmojiPicker({ onSelect, keepOpenOnSelect = false, onGifS
               )}
 
               {CATEGORIES.slice(1).map((cat) => (
-                <div key={cat.id} ref={el => categoryRefs.current[cat.id] = el} className="emoji-section">
+                <div key={cat.id} ref={el => { categoryRefs.current[cat.id] = el; }} className="emoji-section">
                   <div className="emoji-section-title">{cat.name}</div>
                   <div className="emoji-grid">
                     {cat.keys.map(key => (

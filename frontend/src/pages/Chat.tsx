@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { Send, Hash, Volume2, Mic, MicOff, Volume, VolumeX, Settings, Smile, Reply, MoreHorizontal, ArrowDown, BookOpen, Plus, Upload } from 'lucide-react'
+import { Send, Hash, Volume2, Mic, MicOff, Volume, VolumeX, Settings, Smile, Reply, ArrowDown, BookOpen, Plus, Upload, Pencil, Check, X, Trash2 } from 'lucide-react'
 import EmojiPicker from '@/components/EmojiPicker'
 import UserProfile from '@/components/UserProfile'
 import VCJoinModal from '@/components/VCJoinModal'
@@ -14,7 +14,7 @@ import MessageContent from '@/components/MessageContent'
 import { useVoiceChannel } from '@/hooks/useVoiceChannel'
 import { useVCParticipants } from '@/hooks/useVCParticipants'
 import { getUserAvatar, getInitials } from '@/lib/avatars'
-import { channels, dmUsers } from '@/data/mockData'
+import { channels, dmUsers, CURRENT_USER_INTERNAL_ID, findChannelByInternalId, findUserByInternalId } from '@/data/mockData'
 import type { Message } from '@/types/chat'
 import jaruImage from '@/assets/jaru.webp'
 import './Chat.css'
@@ -22,186 +22,103 @@ import './Chat.css'
 // API response cache to prevent duplicate requests
 const embedMetaCache = new Map<string, { title?: string; author?: string }>()
 
-// SE 生成関数 (Discord風)
-const playSound = (type: 'toggle' | 'connect' | 'disconnect' | 'screenShareOn' | 'screenShareOff' | 'micOn' | 'micOff' | 'speakerOn' | 'speakerOff') => {
+// SE 生成関数 (以前のシンプルなピュアサイン音のよさを活かしつつ、間の音を追加して滑らかにしたバージョン)
+const playSound = (type: 'toggle' | 'connect' | 'disconnect' | 'screenShareOn' | 'screenShareOff' | 'micOn' | 'micOff' | 'speakerOn' | 'speakerOff' | 'mention') => {
   try {
     const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
     const now = audioContext.currentTime
 
-    if (type === 'micOn') {
-      // マイクON: 上昇する2音 (低い周波数)
-      const frequencies = [349.23, 440] // F4, A4
-      const startTimes = [0, 0.08]
+    // 以前のシンプルな「サイン波ピープ音」の質感を維持しつつ、
+    // クリック音（ポップノイズ）を完全に無くし、スムーズに聴こえるように最適化した再生ヘルパー
+    const playBeep = (freq: number, startTime: number, duration: number = 0.08) => {
+      const osc = audioContext.createOscillator()
+      const gain = audioContext.createGain()
+      osc.type = 'sine'
+      osc.connect(gain)
+      gain.connect(audioContext.destination)
+      osc.frequency.value = freq
 
+      const targetStartTime = now + startTime
+      // アタックとリリースを僅かに入れることでプツプツ感を解消
+      gain.gain.setValueAtTime(0, targetStartTime)
+      gain.gain.linearRampToValueAtTime(0.20, targetStartTime + 0.008)
+      gain.gain.setValueAtTime(0.20, targetStartTime + duration - 0.015)
+      gain.gain.exponentialRampToValueAtTime(0.0001, targetStartTime + duration)
+
+      osc.start(targetStartTime)
+      // ゲインが完全に0になった直後にオシレーターを停止
+      osc.stop(targetStartTime + duration + 0.02)
+    }
+
+    if (type === 'micOn') {
+      // マイクON: F4 (349.23) から A4 (440.00) の「間」の音として G4 (392.00) を追加してスムーズに
+      const frequencies = [349.23, 392.00, 440.00]
+      const startTimes = [0, 0.05, 0.10]
       frequencies.forEach((freq, index) => {
-        const osc = audioContext.createOscillator()
-        const gain = audioContext.createGain()
-        osc.type = 'sine'
-        osc.connect(gain)
-        gain.connect(audioContext.destination)
-        osc.frequency.value = freq
-        
-        const startTime = now + startTimes[index]
-        gain.gain.setValueAtTime(0.25, startTime)
-        gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.08)
-        osc.start(startTime)
-        osc.stop(startTime + 0.08)
+        playBeep(freq, startTimes[index], 0.06)
       })
     } else if (type === 'micOff') {
-      // マイクOFF: 下降する2音 (低い周波数)
-      const frequencies = [440, 349.23] // A4, F4
-      const startTimes = [0, 0.08]
-
+      // マイクOFF: A4 (440.00) から F4 (349.23) の「間」の音として G4 (392.00) を追加してスムーズに
+      const frequencies = [440.00, 392.00, 349.23]
+      const startTimes = [0, 0.05, 0.10]
       frequencies.forEach((freq, index) => {
-        const osc = audioContext.createOscillator()
-        const gain = audioContext.createGain()
-        osc.type = 'sine'
-        osc.connect(gain)
-        gain.connect(audioContext.destination)
-        osc.frequency.value = freq
-        
-        const startTime = now + startTimes[index]
-        gain.gain.setValueAtTime(0.25, startTime)
-        gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.08)
-        osc.start(startTime)
-        osc.stop(startTime + 0.08)
+        playBeep(freq, startTimes[index], 0.06)
       })
     } else if (type === 'speakerOn') {
-      // スピーカーON: 上昇する2音 (低い周波数)
-      const frequencies = [440, 523.25] // A4, C5
-      const startTimes = [0, 0.08]
-
+      // スピーカーON: A4 (440.00) から C5 (523.25) の「間」の音として B4 (493.88) を追加
+      const frequencies = [440.00, 493.88, 523.25]
+      const startTimes = [0, 0.05, 0.10]
       frequencies.forEach((freq, index) => {
-        const osc = audioContext.createOscillator()
-        const gain = audioContext.createGain()
-        osc.type = 'sine'
-        osc.connect(gain)
-        gain.connect(audioContext.destination)
-        osc.frequency.value = freq
-        
-        const startTime = now + startTimes[index]
-        gain.gain.setValueAtTime(0.25, startTime)
-        gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.08)
-        osc.start(startTime)
-        osc.stop(startTime + 0.08)
+        playBeep(freq, startTimes[index], 0.06)
       })
     } else if (type === 'speakerOff') {
-      // スピーカーOFF: 下降する2音 (低い周波数)
-      const frequencies = [523.25, 440] // C5, A4
-      const startTimes = [0, 0.08]
-
+      // スピーカーOFF: C5 (523.25) から A4 (440.00) の「間」の音として B4 (493.88) を追加
+      const frequencies = [523.25, 493.88, 440.00]
+      const startTimes = [0, 0.05, 0.10]
       frequencies.forEach((freq, index) => {
-        const osc = audioContext.createOscillator()
-        const gain = audioContext.createGain()
-        osc.type = 'sine'
-        osc.connect(gain)
-        gain.connect(audioContext.destination)
-        osc.frequency.value = freq
-        
-        const startTime = now + startTimes[index]
-        gain.gain.setValueAtTime(0.25, startTime)
-        gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.08)
-        osc.start(startTime)
-        osc.stop(startTime + 0.08)
+        playBeep(freq, startTimes[index], 0.06)
       })
-    } else if (type === 'screenShareOn') {
-      // 画面共有ON: てれれれれれん (上昇する5音、低い周波数)
-      const frequencies = [349.23, 392, 440, 523.25, 659.25] // F4, G4, A4, C5, E5
-      const startTimes = [0, 0.08, 0.16, 0.24, 0.32]
-
-      frequencies.forEach((freq, index) => {
-        const osc = audioContext.createOscillator()
-        const gain = audioContext.createGain()
-        osc.type = 'sine'
-        osc.connect(gain)
-        gain.connect(audioContext.destination)
-        osc.frequency.value = freq
-        
-        const startTime = now + startTimes[index]
-        gain.gain.setValueAtTime(0.25, startTime)
-        gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.08)
-        osc.start(startTime)
-        osc.stop(startTime + 0.08)
-      })
-    } else if (type === 'screenShareOff') {
-      // 画面共有OFF: てれれれれれん (下降する5音、低い周波数)
-      const frequencies = [659.25, 523.25, 440, 392, 349.23] // E5, C5, A4, G4, F4
-      const startTimes = [0, 0.08, 0.16, 0.24, 0.32]
-
-      frequencies.forEach((freq, index) => {
-        const osc = audioContext.createOscillator()
-        const gain = audioContext.createGain()
-        osc.type = 'sine'
-        osc.connect(gain)
-        gain.connect(audioContext.destination)
-        osc.frequency.value = freq
-        
-        const startTime = now + startTimes[index]
-        gain.gain.setValueAtTime(0.25, startTime)
-        gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.08)
-        osc.start(startTime)
-        osc.stop(startTime + 0.08)
-      })
-    } else if (type === 'toggle') {
-      // 汎用トグル音: 2つの周波数が連続する気持ちいい音 (低い周波数)
-      const osc1 = audioContext.createOscillator()
-      const gain1 = audioContext.createGain()
-      osc1.type = 'sine'
-      osc1.connect(gain1)
-      gain1.connect(audioContext.destination)
-      osc1.frequency.value = 349.23 // F4
-      gain1.gain.setValueAtTime(0.25, now)
-      gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.08)
-      osc1.start(now)
-      osc1.stop(now + 0.08)
-
-      const osc2 = audioContext.createOscillator()
-      const gain2 = audioContext.createGain()
-      osc2.type = 'sine'
-      osc2.connect(gain2)
-      gain2.connect(audioContext.destination)
-      osc2.frequency.value = 440 // A4
-      gain2.gain.setValueAtTime(0.25, now + 0.05)
-      gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.13)
-      osc2.start(now + 0.05)
-      osc2.stop(now + 0.13)
     } else if (type === 'connect') {
-      // 接続音: 上昇する3音の連続 (低い周波数)
-      const frequencies = [349.23, 440, 523.25] // F4, A4, C5
-      const startTimes = [0, 0.1, 0.2]
-
+      // 接続音: F4➔A4➔C5 の「間」の音として G4 と B4 を追加して5つの階梯で美しく駆け上がる
+      const frequencies = [349.23, 392.00, 440.00, 493.88, 523.25]
+      const startTimes = [0, 0.06, 0.12, 0.18, 0.24]
       frequencies.forEach((freq, index) => {
-        const osc = audioContext.createOscillator()
-        const gain = audioContext.createGain()
-        osc.type = 'sine'
-        osc.connect(gain)
-        gain.connect(audioContext.destination)
-        osc.frequency.value = freq
-        
-        const startTime = now + startTimes[index]
-        gain.gain.setValueAtTime(0.25, startTime)
-        gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.12)
-        osc.start(startTime)
-        osc.stop(startTime + 0.12)
+        playBeep(freq, startTimes[index], 0.08)
       })
     } else if (type === 'disconnect') {
-      // 切断音: 下降する3音の連続 (低い周波数)
-      const frequencies = [523.25, 440, 349.23] // C5, A4, F4
-      const startTimes = [0, 0.1, 0.2]
-
+      // 切断音: C5➔A4➔F4 の「間」の音として B4 と G4 を追加して5つの階梯で美しく降りる
+      const frequencies = [523.25, 493.88, 440.00, 392.00, 349.23]
+      const startTimes = [0, 0.06, 0.12, 0.18, 0.24]
       frequencies.forEach((freq, index) => {
-        const osc = audioContext.createOscillator()
-        const gain = audioContext.createGain()
-        osc.type = 'sine'
-        osc.connect(gain)
-        gain.connect(audioContext.destination)
-        osc.frequency.value = freq
-        
-        const startTime = now + startTimes[index]
-        gain.gain.setValueAtTime(0.25, startTime)
-        gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.12)
-        osc.start(startTime)
-        osc.stop(startTime + 0.12)
+        playBeep(freq, startTimes[index], 0.08)
+      })
+    } else if (type === 'screenShareOn') {
+      // 画面共有ON: ピュアサイン波の軽快な上昇
+      const frequencies = [523.25, 587.33, 659.25, 783.99, 987.77]
+      const startTimes = [0, 0.06, 0.12, 0.18, 0.24]
+      frequencies.forEach((freq, index) => {
+        playBeep(freq, startTimes[index], 0.08)
+      })
+    } else if (type === 'screenShareOff') {
+      // 画面共有OFF: ピュアサイン波の軽快な下降
+      const frequencies = [987.77, 783.99, 659.25, 587.33, 523.25]
+      const startTimes = [0, 0.06, 0.12, 0.18, 0.24]
+      frequencies.forEach((freq, index) => {
+        playBeep(freq, startTimes[index], 0.08)
+      })
+    } else if (type === 'toggle') {
+      // 汎用トグル音: シンプルな2音のピュアサイン波
+      const frequencies = [349.23, 440.00]
+      const startTimes = [0, 0.05]
+      frequencies.forEach((freq, index) => {
+        playBeep(freq, startTimes[index], 0.06)
+      })
+    } else if (type === 'mention') {
+      // メンション音: 軽快で少し高音の二連チャイム音
+      const frequencies = [587.33, 880.00]
+      const startTimes = [0, 0.08]
+      frequencies.forEach((freq, index) => {
+        playBeep(freq, startTimes[index], 0.12)
       })
     }
   } catch (error) {
@@ -210,14 +127,13 @@ const playSound = (type: 'toggle' | 'connect' | 'disconnect' | 'screenShareOn' |
 }
 
 export default function Chat() {
-  const { channelId } = useParams<{ channelId: string }>()
+  const { internalChannelId, internalUserId } = useParams<{ internalChannelId?: string; internalUserId?: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const emojiPickerRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const plusMenuRef = useRef<HTMLDivElement>(null)
-
-  const currentUser = { id: 'current-user', name: 'aiueo aiueioo', status: 'online' as const }
   
   // Voice Channel State
   const {
@@ -237,12 +153,113 @@ export default function Chat() {
   } = useVoiceChannel()
 
   // VC participants (single async-managed state)
-  const { membersByChannelId, addMember, removeMember } = useVCParticipants()
+  const { membersByChannelId, addMember, removeMember, mutedUsers, speakingUsers, muteUser, unmuteUser, setSpeaking } = useVCParticipants()
   
+  // VC channel rename state
+  const [channelNames, setChannelNames] = useState<Record<string, string>>({})
+  const [renamingChannelId, setRenamingChannelId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+
   // UI State
   const [showScrollButton, setShowScrollButton] = useState(false)
   const [isScreenSharing, setIsScreenSharing] = useState(false)
-  const [messages, setMessages] = useState<Message[]>([])
+  const [participantScreenSharing, setParticipantScreenSharing] = useState<Record<string, boolean>>({})
+
+  // User Profile State
+  const [userDisplayName, setUserDisplayName] = useState('aiueo aiueioo')
+  const [userStatusMessage, setUserStatusMessage] = useState('あーほ')
+  const [userBio, setUserBio] = useState('Mingle hamatiii')
+
+  const currentUser = useMemo(() => ({
+    id: 'current-user',
+    internalId: CURRENT_USER_INTERNAL_ID,
+    name: userDisplayName,
+    status: 'online' as const
+  }), [userDisplayName])
+
+  // Channel-specific messages mapping state (each channel / DM has its own independent history)
+  const [messagesByChannel, setMessagesByChannel] = useState<Record<string, Message[]>>(() => {
+    const now = new Date()
+    return {
+      '10000000000000000001': [
+        {
+          id: 'init-r1',
+          userId: 'system',
+          userName: 'System',
+          content: 'はまちりんぐちゃっとへようこそ！このチャンネルはサーバーのルールです。',
+          timestamp: new Date(now.getTime() - 86400000),
+          reactions: {} as Record<string, string[]>,
+        },
+        {
+          id: 'init-r2',
+          userId: '20000000000000000002',
+          userName: 'Friend1',
+          content: 'みんなで仲良く、マナーを守って使いましょう！🤝',
+          timestamp: new Date(now.getTime() - 86000000),
+          reactions: { '👍': ['20000000000000000003'] } as Record<string, string[]>,
+        }
+      ],
+      '10000000000000000002': [
+        {
+          id: 'init-j1',
+          userId: '20000000000000000003',
+          userName: 'Friend2',
+          content: '昨日のジャルジャルの新しいコント動画、マジで腹ちぎれるほど笑ったわｗｗｗ',
+          timestamp: new Date(now.getTime() - 3600000),
+          reactions: { '😂': ['20000000000000000004', 'current-user'] } as Record<string, string[]>,
+        },
+        {
+          id: 'init-j2',
+          userId: '20000000000000000004',
+          userName: 'Friend3',
+          content: 'それな！あの独特のシュールな世界観が最高だよね。',
+          timestamp: new Date(now.getTime() - 1800000),
+          reactions: { '🔥': ['20000000000000000003'] } as Record<string, string[]>,
+        }
+      ],
+      '10000000000000000003': [
+        {
+          id: 'init-g1',
+          userId: '20000000000000000002',
+          userName: 'Friend1',
+          content: '新しくはまちりんぐちゃっとのサーバーを立ち上げてみました！雑談など自由にどうぞ！🌟',
+          timestamp: new Date(now.getTime() - 7200000),
+          reactions: { '🎉': ['20000000000000000003', '20000000000000000004'] } as Record<string, string[]>,
+        }
+      ],
+      '20000000000000000002': [
+        {
+          id: 'init-d1',
+          userId: '20000000000000000002',
+          userName: 'Friend1',
+          content: 'お疲れ様！今日もし夜暇だったら、後で一緒にVCでゲームでもしない？🎮',
+          timestamp: new Date(now.getTime() - 4000000),
+          reactions: {} as Record<string, string[]>,
+        }
+      ],
+      '20000000000000000003': [
+        {
+          id: 'init-d2',
+          userId: '20000000000000000003',
+          userName: 'Friend2',
+          content: 'この前の開発用のデザイン資料、共有ありがとう！めちゃくちゃ参考になった！',
+          timestamp: new Date(now.getTime() - 10000000),
+          reactions: { '👍': ['current-user'] } as Record<string, string[]>,
+        }
+      ],
+      '20000000000000000004': [
+        {
+          id: 'init-d3',
+          userId: '20000000000000000004',
+          userName: 'Friend3',
+          content: '了解です！頼まれてた資料の件、明日の午前中までにまとめ直しておきますね〜！✨',
+          timestamp: new Date(now.getTime() - 5000000),
+          reactions: {} as Record<string, string[]>,
+        }
+      ],
+    }
+  })
+
   const [inputValue, setInputValue] = useState('')
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [emojiPickerPosition, setEmojiPickerPosition] = useState<{ top: number; left: number } | null>(null)
@@ -256,21 +273,253 @@ export default function Chat() {
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [settingsTab, setSettingsTab] = useState<'profile' | 'account' | 'voice' | 'notifications'>('profile')
 
-  const isDMRoute = channelId?.startsWith('dm-') ?? false
-  const dmUserId = isDMRoute && channelId ? channelId.slice('dm-'.length) : null
-  const dmUser =
-    (dmUserId ? dmUsers.find(u => u.id === dmUserId) : null) ??
-    (dmUserId === currentUser.id ? currentUser : null)
-  const dmDisplayName = dmUser ? `# ${dmUser.name}` : '# dm-name'
-  const selectedChannel = !isDMRoute
-    ? channels.find(c => c.id === channelId) || channels[0]
-    : channels[0]
+  // Input ref and mention suggestions ref
+  const inputRef = useRef<HTMLInputElement>(null)
+  const mentionSuggestionsRef = useRef<HTMLDivElement>(null)
+
+  // Channel Notifications State (unread or mention + count)
+  const [channelNotifications, setChannelNotifications] = useState<Record<string, { type: 'none' | 'unread' | 'mention'; count: number }>>({
+    '10000000000000000002': { type: 'unread', count: 0 },
+    '10000000000000000003': { type: 'mention', count: 1 },
+  })
+
+  // Mention suggestions UI state
+  const [showMentionSuggestions, setShowMentionSuggestions] = useState(false)
+  const [mentionSearchText, setMentionSearchText] = useState('')
+  const [activeMentionIndex, setActiveMentionIndex] = useState(0)
+
+  // Notification preferences
+  const [enableDesktopNotifications, setEnableDesktopNotifications] = useState(false)
+  const [enableSoundNotifications, setEnableSoundNotifications] = useState(true)
 
   useEffect(() => {
-    if (!channelId) {
-      navigate(`/chat/${channels[0].id}`)
+    if (enableDesktopNotifications && Notification.permission === 'default') {
+      Notification.requestPermission();
     }
-  }, [channelId, navigate])
+  }, [enableDesktopNotifications])
+
+  // Sort DM users by recency of messages
+  const sortedDmUsers = useMemo(() => {
+    return [...dmUsers].sort((a, b) => {
+      const aMsgs = messagesByChannel[a.internalId] ?? []
+      const bMsgs = messagesByChannel[b.internalId] ?? []
+      const aLast = aMsgs.length > 0 ? new Date(aMsgs[aMsgs.length - 1].timestamp).getTime() : 0
+      const bLast = bMsgs.length > 0 ? new Date(bMsgs[bMsgs.length - 1].timestamp).getTime() : 0
+      
+      if (aLast === 0 && bLast === 0) {
+        return dmUsers.indexOf(a) - dmUsers.indexOf(b)
+      }
+      return bLast - aLast
+    })
+  }, [messagesByChannel, dmUsers])
+
+  const getUserStatusMessage = useCallback((userId: string) => {
+    if (userId === 'current-user' || userId === CURRENT_USER_INTERNAL_ID) {
+      return userStatusMessage
+    }
+    if (userId === '20000000000000000002') return '今日はいい天気ですね！'
+    if (userId === '20000000000000000003') return 'よろしくお願いします！'
+    if (userId === '20000000000000000004') return 'ミーティング中'
+    return 'ステータスメッセージはありません'
+  }, [userStatusMessage])
+
+  // Clean up screen sharing for users who left VC
+  useEffect(() => {
+    const allInAnyVC = Object.values(membersByChannelId).flat()
+    setParticipantScreenSharing(prev => {
+      let changed = false
+      const next = { ...prev }
+      Object.keys(prev).forEach(uid => {
+        if (!allInAnyVC.includes(uid) && prev[uid]) {
+          delete next[uid]
+          changed = true
+        }
+      })
+      return changed ? next : prev
+    })
+  }, [membersByChannelId])
+
+  // Keep track of previous VC states to detect actions and play sounds for other users
+  const prevVCStateRef = useRef<{
+    channelId: string | null;
+    members: string[];
+    muted: Record<string, boolean>;
+    sharing: Record<string, boolean>;
+  }>({
+    channelId: null,
+    members: [],
+    muted: {},
+    sharing: {}
+  })
+
+  useEffect(() => {
+    const channelId = connectedVCChannel?.internalId || null
+    const currentMembers = channelId ? (membersByChannelId[channelId] ?? []) : []
+    
+    const currentMuted: Record<string, boolean> = {}
+    const currentSharing: Record<string, boolean> = {}
+    
+    currentMembers.forEach(uid => {
+      if (uid !== currentUser.internalId) {
+        currentMuted[uid] = mutedUsers.has(uid)
+        currentSharing[uid] = !!participantScreenSharing[uid]
+      }
+    })
+
+    const prev = prevVCStateRef.current
+
+    if (prev.channelId !== channelId) {
+      prevVCStateRef.current = {
+        channelId,
+        members: currentMembers,
+        muted: currentMuted,
+        sharing: currentSharing
+      }
+      return
+    }
+
+    if (channelId) {
+      // 1. Detect joins (excluding current user)
+      currentMembers.forEach(uid => {
+        if (uid !== currentUser.internalId && !prev.members.includes(uid)) {
+          playSound('connect')
+        }
+      })
+
+      // 2. Detect leaves (excluding current user)
+      prev.members.forEach(uid => {
+        if (uid !== currentUser.internalId && !currentMembers.includes(uid)) {
+          playSound('disconnect')
+        }
+      })
+
+      // 3. Detect mute/unmute changes (excluding current user)
+      Object.keys(currentMuted).forEach(uid => {
+        const wasMuted = prev.muted[uid] ?? false
+        const isMuted = currentMuted[uid]
+        if (wasMuted !== isMuted) {
+          playSound(isMuted ? 'micOff' : 'micOn')
+        }
+      })
+
+      // 4. Detect screen share changes (excluding current user)
+      Object.keys(currentSharing).forEach(uid => {
+        const wasSharing = prev.sharing[uid] ?? false
+        const isSharing = currentSharing[uid]
+        if (wasSharing !== isSharing) {
+          playSound(isSharing ? 'screenShareOn' : 'screenShareOff')
+        }
+      })
+    }
+
+    prevVCStateRef.current = {
+      channelId,
+      members: currentMembers,
+      muted: currentMuted,
+      sharing: currentSharing
+    }
+  }, [connectedVCChannel, membersByChannelId, mutedUsers, participantScreenSharing, currentUser.internalId])
+
+  // Mentionable users list
+  const mentionableUsers = useMemo(() => [currentUser, ...dmUsers], [currentUser, dmUsers])
+
+  // Filter mentionable users based on query
+  const filteredUsers = useMemo(() => {
+    if (!showMentionSuggestions) return []
+    return mentionableUsers.filter(u => 
+      u.name.toLowerCase().includes(mentionSearchText.toLowerCase()) ||
+      u.internalId.includes(mentionSearchText)
+    )
+  }, [showMentionSuggestions, mentionSearchText, mentionableUsers])
+
+  // Handles selecting a user from the mention suggestions
+  const handleSelectMention = (user: { internalId: string; name: string }) => {
+    setInputValue(prev => {
+      const mentionMatch = prev.match(/(?:^|\s)@(\S*)$/)
+      if (!mentionMatch) return prev + `<@${user.internalId}> `
+      const matchIndex = prev.lastIndexOf(mentionMatch[0])
+      const prefix = prev.slice(0, matchIndex)
+      const leadingSpace = mentionMatch[0].startsWith(' ') ? ' ' : ''
+      return `${prefix}${leadingSpace}<@${user.internalId}> `
+    })
+    setShowMentionSuggestions(false)
+    setMentionSearchText('')
+    setTimeout(() => {
+      inputRef.current?.focus()
+    }, 50)
+  }
+
+  // Handles text input changes to trigger mention suggestions
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value
+    setInputValue(val)
+
+    const mentionMatch = val.match(/(?:^|\s)@(\S*)$/)
+    if (mentionMatch) {
+      const query = mentionMatch[1]
+      setMentionSearchText(query)
+      setShowMentionSuggestions(true)
+      setActiveMentionIndex(0)
+    } else {
+      setShowMentionSuggestions(false)
+      setMentionSearchText('')
+    }
+  }
+
+  // Keyboard navigation for mention suggestions list
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (showMentionSuggestions && filteredUsers.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setActiveMentionIndex(prev => (prev + 1) % filteredUsers.length)
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setActiveMentionIndex(prev => (prev - 1 + filteredUsers.length) % filteredUsers.length)
+      } else if (e.key === 'Enter') {
+        e.preventDefault()
+        handleSelectMention(filteredUsers[activeMentionIndex])
+      } else if (e.key === 'Escape') {
+        e.preventDefault()
+        setShowMentionSuggestions(false)
+      }
+    }
+  }
+
+  // ルートの種別を判定
+  const isDMRoute = location.pathname.startsWith('/channels/@me/')
+  const isVCRoute = location.pathname.startsWith('/channels/vc/')
+  const isChatRoute = location.pathname.startsWith('/channels/chat/')
+
+  // DMの相手ユーザーを特定
+  const dmUser = isDMRoute && internalUserId ? findUserByInternalId(internalUserId) : null
+  const dmDisplayName = dmUser ? `# ${dmUser.name}` : '# dm-name'
+
+  // 選択中のチャンネルを特定
+  const selectedChannel = (isChatRoute || isVCRoute) && internalChannelId
+    ? findChannelByInternalId(internalChannelId) || channels[0]
+    : channels[0]
+
+  // チャンネルの表示名を取得するヘルパー（リネーム対応）
+  const getChannelDisplayName = (channelInternalId: string, defaultName: string) => {
+    return channelNames[channelInternalId] || defaultName
+  }
+
+  // Memoized current chat ID — depends on isDMRoute & selectedChannel (declared above)
+  const currentChatId = useMemo(() => {
+    return isDMRoute ? (internalUserId || '') : (selectedChannel?.internalId || '')
+  }, [isDMRoute, internalUserId, selectedChannel?.internalId])
+
+  // Select only the current channel's messages (avoids cross-channel leakage)
+  const messages = useMemo(() => {
+    return currentChatId ? (messagesByChannel[currentChatId] ?? []) : []
+  }, [messagesByChannel, currentChatId])
+
+  useEffect(() => {
+    // パスが /channels だけの場合はデフォルトチャンネルへリダイレクト
+    if (!internalChannelId && !internalUserId) {
+      navigate(`/channels/chat/${channels[0].internalId}`)
+    }
+  }, [internalChannelId, internalUserId, navigate])
 
   // Close emoji picker when clicking outside
   useEffect(() => {
@@ -302,6 +551,385 @@ export default function Chat() {
     }
   }, [showPlusMenu])
 
+  // Close mention suggestions when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (mentionSuggestionsRef.current && !mentionSuggestionsRef.current.contains(event.target as Node)) {
+        setShowMentionSuggestions(false)
+      }
+    }
+
+    if (showMentionSuggestions) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showMentionSuggestions])
+
+  // Clear notification for selected channel or DM user
+  useEffect(() => {
+    const activeId = isDMRoute ? internalUserId : selectedChannel?.internalId
+    if (activeId) {
+      setChannelNotifications(prev => {
+        const current = prev[activeId]
+        if (current && current.type !== 'none') {
+          return { ...prev, [activeId]: { type: 'none', count: 0 } }
+        }
+        return prev
+      })
+    }
+  }, [isDMRoute, internalUserId, selectedChannel?.internalId])
+
+  // ── Notification helper ──────────────────────────────────────────────────
+  // Fires a desktop notification (if enabled + window unfocused) and/or
+  // plays a sound (if enabled), only for mention-type events.
+  const fireIncomingNotification = useCallback(
+    (isMention: boolean, senderName: string, channelLabel: string, bodyText: string) => {
+      if (enableSoundNotifications) {
+        playSound(isMention ? 'mention' : 'toggle')
+      }
+      if (
+        isMention &&
+        enableDesktopNotifications &&
+        Notification.permission === 'granted'
+      ) {
+        new Notification(`${senderName} があなたをメンションしました`, {
+          body: `#${channelLabel}: ${bodyText.replace(/<@\d+>/g, '@...')}`,
+          icon: '/favicon.ico',
+        })
+      }
+    },
+    [enableSoundNotifications, enableDesktopNotifications]
+  )
+
+  // ── Rich mock activity engine ─────────────────────────────────────────────
+  // Runs continuously; simulates chat messages (with mentions & emoji),
+  // reactions on recent messages, and VC join / leave / mute events.
+  useEffect(() => {
+    // ---- conversation pools ------------------------------------------------
+    const CONVO: string[] = [
+      // casual
+      `最近どう？`,
+      `ちょっと聞いてもいい？`,
+      `今日めっちゃ眠い 😴`,
+      `それな〜`,
+      `マジ？知らんかった笑`,
+      `草`,
+      `えー！マジで？`,
+      `おつかれ〜！`,
+      `ありがとう！助かった`,
+      `なるほどね〜`,
+      `うける 笑笑`,
+      `待って、それどういう意味？`,
+      `わかる、めっちゃわかる`,
+      `今夜空いてる？`,
+      `昨日の飯めちゃ美味かった 🍜`,
+      `このゲーム面白すぎる`,
+      `ちょっと待って今見てる`,
+      `了解〜`,
+      `そうなんだ〜`,
+      `うまく言えないけど、なんかいい感じ`,
+      `www`,
+      `あ、そっか`,
+      `まじかよ`,
+      `それはやばいな`,
+      `ゆっくりしてね 🙌`,
+    ]
+
+    // Build a message with a random self-mention or normal conversation
+    const buildMentionMsg = (): { content: string; isMentionSelf: boolean } => {
+      const r = Math.random()
+      if (r < 0.35) {
+        // mention current user (ONLY target me!)
+        return {
+          content: `<@${CURRENT_USER_INTERNAL_ID}> ${pick([`ちょっといい？`, `見てる？`, `これ知ってた？`, `後で来て！`, `意見聞かせて`])}`,
+          isMentionSelf: true,
+        }
+      } else {
+        return { content: pick(CONVO), isMentionSelf: false }
+      }
+    }
+
+    // ---- emoji pool for reactions ------------------------------------------
+    const REACTION_EMOJIS = [`👍`, `😂`, `❤️`, `🔥`, `😮`, `✅`, `🎉`, `👀`, `😭`, `💯`]
+
+    // ---- helpers -----------------------------------------------------------
+    function pick<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)] }
+
+    // ---- fire a notification dot + OS/sound if needed ----------------------
+    const fire = (isMention: boolean, senderName: string, label: string, body: string) => {
+      fireIncomingNotification(isMention, senderName, label, body)
+    }
+
+    // ---- post a message to the active channel view -------------------------
+    const postToActive = (sender: typeof dmUsers[0], content: string, isMentionSelf: boolean) => {
+      const msg: Message = {
+        id: `mock-${Date.now()}-${Math.random()}`,
+        userId: sender.internalId,
+        userName: sender.name,
+        content,
+        timestamp: new Date(),
+        reactions: {},
+      }
+      setMessagesByChannel(prev => ({
+        ...prev,
+        [currentChatId]: [...(prev[currentChatId] ?? []), msg]
+      }))
+      if (isMentionSelf || isDMRoute) {
+        fire(true, sender.name, isDMRoute ? `DM: ${sender.name}` : getChannelDisplayName(selectedChannel.internalId, selectedChannel.displayName), content)
+      }
+    }
+
+    // ---- add a reaction to a recent message --------------------------------
+    const addReactionToRecent = () => {
+      const emoji = pick(REACTION_EMOJIS)
+      const reactor = pick(dmUsers)
+      setMessagesByChannel(prev => {
+        const pool = prev[currentChatId] ?? []
+        if (pool.length === 0) return prev
+        // pick one of the last 5 messages
+        const recent = pool.slice(-5)
+        const target = pick(recent)
+        
+        const updatedPool = pool.map(m => {
+          if (m.id !== target.id) return m
+          const reactions = { ...(m.reactions ?? {}) }
+          const existing = reactions[emoji] ?? []
+          if (existing.includes(reactor.internalId)) return m // already reacted
+          reactions[emoji] = [...existing, reactor.internalId]
+          return { ...m, reactions }
+        })
+        
+        return {
+          ...prev,
+          [currentChatId]: updatedPool
+        }
+      })
+    }
+
+    // ---- VC mock events ----------------------------------------------------
+    const vcChannels = channels.filter(c => c.category === 'vc')
+
+    const doVCEvent = () => {
+      if (vcChannels.length === 0) return
+      const r = Math.random()
+
+      if (r < 0.22) {
+        // ── Join a random VC channel ────────────────────────────────────────
+        const chan = pick(vcChannels)
+        const user = pick(dmUsers)
+        addMember(chan.internalId, user.internalId)
+        unmuteUser(user.internalId)
+
+      } else if (r < 0.38) {
+        // ── Leave (from whichever channel they are in) ──────────────────────
+        const user = pick(dmUsers)
+        for (const chan of vcChannels) {
+          const members = membersByChannelId[chan.internalId] ?? []
+          if (members.includes(user.internalId)) {
+            removeMember(chan.internalId, user.internalId)
+            break
+          }
+        }
+
+      } else if (r < 0.52) {
+        // ── Mute ──────────────────────────────────────────────────────────
+        // Pick a user that is currently in ANY vc channel
+        const allInVC = vcChannels.flatMap(c => membersByChannelId[c.internalId] ?? [])
+        const candidates = dmUsers.filter(u => allInVC.includes(u.internalId) && !mutedUsers.has(u.internalId))
+        if (candidates.length > 0) muteUser(pick(candidates).internalId)
+
+      } else if (r < 0.64) {
+        // ── Unmute ─────────────────────────────────────────────────────────
+        const mutedInVC = Array.from(mutedUsers).filter(uid =>
+          vcChannels.some(c => (membersByChannelId[c.internalId] ?? []).includes(uid))
+        )
+        if (mutedInVC.length > 0) unmuteUser(pick(mutedInVC))
+
+      } else if (r < 0.78) {
+        // ── Speaking burst (unmuted user starts speaking for ~2 s) ────────
+        const allInVC = vcChannels.flatMap(c => membersByChannelId[c.internalId] ?? [])
+        const speakers = dmUsers.filter(u => allInVC.includes(u.internalId) && !mutedUsers.has(u.internalId))
+        if (speakers.length > 0) {
+          const spk = pick(speakers)
+          setSpeaking(spk.internalId, true)
+          setTimeout(() => setSpeaking(spk.internalId, false), 1500 + Math.random() * 2000)
+        }
+
+      } else if (r < 0.88) {
+        // ── Channel switch (user leaves one VC and immediately joins another)
+        const user = pick(dmUsers)
+        for (const chan of vcChannels) {
+          const members = membersByChannelId[chan.internalId] ?? []
+          if (members.includes(user.internalId)) {
+            removeMember(chan.internalId, user.internalId)
+            const others = vcChannels.filter(c => c.internalId !== chan.internalId)
+            if (others.length > 0) {
+              const dest = pick(others)
+              setTimeout(() => addMember(dest.internalId, user.internalId), 600)
+            }
+            break
+          }
+        }
+
+      } else if (r < 0.94) {
+        // ── Everyone leaves a random VC (channel goes empty) ───────────────
+        const chan = pick(vcChannels)
+        const members = [...(membersByChannelId[chan.internalId] ?? [])]
+        members.forEach(uid => removeMember(chan.internalId, uid))
+      } else {
+        // ── Screen Share Toggle ──────────────────────────────────────────
+        const allInVC = vcChannels.flatMap(c => membersByChannelId[c.internalId] ?? [])
+        const candidates = dmUsers.filter(u => allInVC.includes(u.internalId))
+        if (candidates.length > 0) {
+          const targetUser = pick(candidates)
+          setParticipantScreenSharing(prev => {
+            const currentlySharing = !!prev[targetUser.internalId]
+            const nextSharing = !currentlySharing
+            return {
+              ...prev,
+              [targetUser.internalId]: nextSharing
+            }
+          })
+        }
+      }
+    }
+
+    // ---- main tick ---------------------------------------------------------
+    const tick = () => {
+      const action = Math.random()
+
+      if (action < 0.30) {
+        // ── Chat in the currently visible channel/DM ──────────────────────
+        if (!isDMRoute) {
+          const sender = pick(dmUsers)
+          const { content, isMentionSelf } = buildMentionMsg()
+          postToActive(sender, content, isMentionSelf)
+        } else {
+          // DM: only send if the mock user matches the open DM user
+          const sender = dmUsers.find(u => u.internalId === internalUserId)
+          if (sender) {
+            const { content, isMentionSelf } = buildMentionMsg()
+            postToActive(sender, content, isMentionSelf)
+          }
+        }
+
+      } else if (action < 0.50) {
+        // ── Chat in a background channel (dot indicator / count badge) ─────
+        const bgChans = channels.filter(c =>
+          c.category === 'text' &&
+          (!isDMRoute ? c.internalId !== selectedChannel?.internalId : true)
+        )
+        if (bgChans.length > 0) {
+          const chan = pick(bgChans)
+          const sender = pick(dmUsers)
+          const { content, isMentionSelf } = buildMentionMsg()
+          
+          const msg: Message = {
+            id: `mock-${Date.now()}-${Math.random()}`,
+            userId: sender.internalId,
+            userName: sender.name,
+            content,
+            timestamp: new Date(),
+            reactions: {},
+          }
+          
+          setMessagesByChannel(prev => ({
+            ...prev,
+            [chan.internalId]: [...(prev[chan.internalId] ?? []), msg]
+          }))
+
+          setChannelNotifications(prev => {
+            const current = prev[chan.internalId] || { type: 'none', count: 0 }
+            if (isMentionSelf) {
+              return {
+                ...prev,
+                [chan.internalId]: { type: 'mention', count: current.count + 1 }
+              }
+            } else {
+              return {
+                ...prev,
+                [chan.internalId]: {
+                  type: current.type === 'mention' ? 'mention' : 'unread',
+                  count: current.count
+                }
+              }
+            }
+          })
+          fire(isMentionSelf, sender.name, getChannelDisplayName(chan.internalId, chan.displayName), content)
+        }
+
+      } else if (action < 0.62) {
+        // ── DM in a background DM ─────────────────────────────────────────
+        const bgUsers = dmUsers.filter(u => !isDMRoute || u.internalId !== internalUserId)
+        if (bgUsers.length > 0) {
+          const bgUser = pick(bgUsers)
+          const { content } = buildMentionMsg()
+
+          const msg: Message = {
+            id: `mock-${Date.now()}-${Math.random()}`,
+            userId: bgUser.internalId,
+            userName: bgUser.name,
+            content,
+            timestamp: new Date(),
+            reactions: {},
+          }
+
+          setMessagesByChannel(prev => ({
+            ...prev,
+            [bgUser.internalId]: [...(prev[bgUser.internalId] ?? []), msg]
+          }))
+
+          setChannelNotifications(prev => {
+            const current = prev[bgUser.internalId] || { type: 'none', count: 0 }
+            return {
+              ...prev,
+              [bgUser.internalId]: { type: 'mention', count: current.count + 1 }
+            }
+          })
+          fire(true, bgUser.name, `DM: ${bgUser.name}`, content)
+        }
+
+      } else if (action < 0.72) {
+        // ── Reaction on a recent message ──────────────────────────────────
+        addReactionToRecent()
+
+      } else {
+        // ── VC event (38% of ticks → very active VC) ─────────────────────
+        doVCEvent()
+      }
+    }
+
+    // Stagger first tick so it doesn't fire immediately on mount
+    const initialDelay = setTimeout(tick, 800 + Math.random() * 800)
+
+    // Subsequent ticks every 1.5–3 seconds
+    let intervalId: ReturnType<typeof setInterval>
+    const startInterval = () => {
+      intervalId = setInterval(() => {
+        tick()
+      }, 1500 + Math.random() * 1500)
+    }
+    const delayStart = setTimeout(startInterval, 800)
+
+    return () => {
+      clearTimeout(initialDelay)
+      clearTimeout(delayStart)
+      clearInterval(intervalId)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDMRoute, internalUserId, selectedChannel?.internalId, fireIncomingNotification, addMember, removeMember])
+
+  const handleDeleteMessage = useCallback((messageId: string) => {
+    setMessagesByChannel(prev => {
+      const pool = prev[currentChatId] ?? []
+      const updatedPool = pool.filter(m => m.id !== messageId)
+      return {
+        ...prev,
+        [currentChatId]: updatedPool
+      }
+    })
+  }, [currentChatId])
+
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault()
     if (!inputValue.trim()) return
@@ -321,9 +949,13 @@ export default function Chat() {
       } : undefined,
     }
 
-    setMessages([...messages, newMessage])
+    setMessagesByChannel(prev => ({
+      ...prev,
+      [currentChatId]: [...(prev[currentChatId] ?? []), newMessage]
+    }))
     setInputValue('')
     setReplyingToMessage(null)
+    setShowMentionSuggestions(false)
   }
 
   const getViewport = () => {
@@ -384,38 +1016,39 @@ export default function Chat() {
     setIsScreenSharing(!isScreenSharing)
   }
 
-  const handleChannelClick = (channelId: string) => {
-    const channel = channels.find(c => c.id === channelId)
-    if (channel?.category === 'vc') {
+  const handleChannelClick = (channelInternalId: string) => {
+    const channel = findChannelByInternalId(channelInternalId)
+    if (!channel) return
+    if (channel.category === 'vc') {
       if (isConnectedToVC) {
-        if (connectedVCChannel?.id === channelId) {
+        if (connectedVCChannel?.internalId === channelInternalId) {
           // すでに接続済みのVCに戻った場合は、保留中の確認モーダルを閉じる
           closeVCModal()
-          navigate(`/chat/${channelId}`)
+          navigate(`/channels/vc/${channelInternalId}`)
           return
         }
 
         // 接続中に別VCへ移る場合も確認画面を出す
         requestJoinVC(channel)
-        navigate(`/chat/${channelId}`)
+        navigate(`/channels/vc/${channelInternalId}`)
         return
       }
 
       requestJoinVC(channel)
-      navigate(`/chat/${channelId}`)
+      navigate(`/channels/vc/${channelInternalId}`)
     } else {
       // テキストチャンネルをクリックした場合、VCモーダルを閉じる
       closeVCModal()
-      navigate(`/chat/${channelId}`)
+      navigate(`/channels/chat/${channelInternalId}`)
     }
   }
 
   const handleJoinVC = () => {
     if (pendingVCChannel) {
-      if (connectedVCChannel && connectedVCChannel.id !== pendingVCChannel.id) {
-        removeMember(connectedVCChannel.id, currentUser.id)
+      if (connectedVCChannel && connectedVCChannel.internalId !== pendingVCChannel.internalId) {
+        removeMember(connectedVCChannel.internalId, currentUser.internalId)
       }
-      addMember(pendingVCChannel.id, currentUser.id)
+      addMember(pendingVCChannel.internalId, currentUser.internalId)
       if (isConnectedToVC) {
         switchVCChannel(pendingVCChannel)
         playSound('connect')
@@ -427,17 +1060,65 @@ export default function Chat() {
   }
 
   const handleDisconnectVC = () => {
+    const previousVCChannel = connectedVCChannel
     if (connectedVCChannel) {
-      removeMember(connectedVCChannel.id, currentUser.id)
+      removeMember(connectedVCChannel.internalId, currentUser.internalId)
     }
     playSound('disconnect')
     disconnectVC()
-    navigate(`/chat/${channels[0].id}`)
+    setIsScreenSharing(false)
+    if (previousVCChannel) {
+      requestJoinVC(previousVCChannel)
+      navigate(`/channels/vc/${previousVCChannel.internalId}`)
+    } else {
+      navigate(`/channels/chat/${channels[0].internalId}`)
+    }
   }
 
   const handleCloseVCModal = () => {
     closeVCModal()
-    navigate(`/chat/${channels[0].id}`)
+    navigate(`/channels/chat/${channels[0].internalId}`)
+  }
+
+  // VC名前変更ハンドラー
+  const handleStartRenameVC = (channelInternalId: string, currentName: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setRenamingChannelId(channelInternalId)
+    setRenameValue(currentName)
+  }
+
+  const handleConfirmRename = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (renamingChannelId && renameValue.trim()) {
+      setChannelNames(prev => ({
+        ...prev,
+        [renamingChannelId]: renameValue.trim()
+      }))
+    }
+    setRenamingChannelId(null)
+    setRenameValue('')
+  }
+
+  const handleCancelRename = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setRenamingChannelId(null)
+    setRenameValue('')
+  }
+
+  const handleRenameKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      if (renamingChannelId && renameValue.trim()) {
+        setChannelNames(prev => ({
+          ...prev,
+          [renamingChannelId]: renameValue.trim()
+        }))
+      }
+      setRenamingChannelId(null)
+      setRenameValue('')
+    } else if (e.key === 'Escape') {
+      setRenamingChannelId(null)
+      setRenameValue('')
+    }
   }
 
   const formatFullTime = (date: Date) => {
@@ -489,9 +1170,9 @@ export default function Chat() {
     setSelectedUserId(null)
   }
 
-  const handleDMUserClick = (userId: string) => {
-    // DMは「チャンネル欄」ではなく個別のDMスレッドへ遷移させる
-    navigate(`/chat/dm-${userId}`)
+  const handleDMUserClick = (userInternalId: string) => {
+    // DMは /channels/@me/<相手のinternalId> へ遷移
+    navigate(`/channels/@me/${userInternalId}`)
   }
 
   const handleOwnProfileClick = () => {
@@ -515,8 +1196,9 @@ export default function Chat() {
 
     const currentUserId = 'current-user'
 
-    setMessages(prev =>
-      prev.map(message => {
+    setMessagesByChannel(prev => {
+      const pool = prev[currentChatId] ?? []
+      const updatedPool = pool.map(message => {
         if (message.id !== reactionTargetMessageId) return message
 
         const currentReactions = message.reactions ?? {}
@@ -535,8 +1217,13 @@ export default function Chat() {
         }
 
         return { ...message, reactions: nextReactions }
-      }),
-    )
+      })
+
+      return {
+        ...prev,
+        [currentChatId]: updatedPool
+      }
+    })
 
     setReactionTargetMessageId(null)
     setShowEmojiPicker(false)
@@ -554,7 +1241,10 @@ export default function Chat() {
       reactions: {},
     }
 
-    setMessages([...messages, newMessage])
+    setMessagesByChannel(prev => ({
+      ...prev,
+      [currentChatId]: [...(prev[currentChatId] ?? []), newMessage]
+    }))
     setShowEmojiPicker(false)
     setEmojiPickerPosition(null)
   }
@@ -588,7 +1278,10 @@ export default function Chat() {
             dataUrl: dataUrl,
           },
         }
-        setMessages([...messages, newMessage])
+        setMessagesByChannel(prev => ({
+          ...prev,
+          [currentChatId]: [...(prev[currentChatId] ?? []), newMessage]
+        }))
       }
       reader.readAsDataURL(file)
     })
@@ -676,12 +1369,12 @@ export default function Chat() {
   const vcChannels = channels.filter(c => c.category === 'vc')
 
   const viewingVCChannel = selectedChannel.category === 'vc' ? selectedChannel : null
-  const viewingMemberIds = viewingVCChannel ? (membersByChannelId[viewingVCChannel.id] ?? []) : []
-  const currentUserInViewingVC = viewingMemberIds.includes(currentUser.id)
-  const viewingOtherParticipants = dmUsers.filter(user => viewingMemberIds.includes(user.id))
+  const viewingMemberIds = viewingVCChannel ? (membersByChannelId[viewingVCChannel.internalId] ?? []) : []
+  const currentUserInViewingVC = viewingMemberIds.includes(currentUser.internalId)
+  const viewingOtherParticipants = dmUsers.filter(user => viewingMemberIds.includes(user.internalId))
 
   return (
-    <div className={`chat-container ${showUserProfile ? 'profile-open' : ''}`}>
+    <div className={`chat-container ${(showUserProfile || (isDMRoute && internalUserId)) ? 'profile-open' : ''}`}>
       {/* DM Column */}
       <aside className="dm-sidebar">
         <div className="sidebar-header">
@@ -689,17 +1382,31 @@ export default function Chat() {
         </div>
         <ScrollArea className="sidebar-content">
           <div className="user-list">
-            {dmUsers.map((user) => (
+             {sortedDmUsers.map((user) => (
               <button 
-                key={user.id} 
-                className="user-item"
-                onClick={() => handleDMUserClick(user.id)}
+                key={user.internalId} 
+                className={`user-item ${isDMRoute && internalUserId === user.internalId ? 'active' : ''} ${channelNotifications[user.internalId]?.type || ''}`}
+                onClick={() => handleDMUserClick(user.internalId)}
+                style={{ position: 'relative' }}
               >
                 <Avatar className="user-avatar">
-                  <AvatarImage src={getUserAvatar(user.id)} alt={user.name} />
+                  <AvatarImage src={getUserAvatar(user.internalId)} alt={user.name} />
                   <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
                 </Avatar>
-                <span className="user-name">{user.name}</span>
+                <div className="user-details">
+                  <span className="user-name">{user.name}</span>
+                  <span className="user-status-sub">
+                    {getUserStatusMessage(user.internalId)}
+                  </span>
+                </div>
+                {channelNotifications[user.internalId]?.type === 'unread' && (
+                  <span className="channel-notification-unread" />
+                )}
+                {channelNotifications[user.internalId]?.type === 'mention' && (
+                  <span className="channel-notification-mention">
+                    {channelNotifications[user.internalId]?.count || 0}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -717,9 +1424,10 @@ export default function Chat() {
             <nav className="channel-list">
               {textChannels.map((channel) => (
                 <button
-                  key={channel.id}
-                  className={`channel-item ${selectedChannel.id === channel.id ? 'active' : ''}`}
-                  onClick={() => handleChannelClick(channel.id)}
+                  key={channel.internalId}
+                  className={`channel-item ${(!isDMRoute && selectedChannel.internalId === channel.internalId) ? 'active' : ''} ${channelNotifications[channel.internalId]?.type || ''}`}
+                  onClick={() => handleChannelClick(channel.internalId)}
+                  style={{ position: 'relative' }}
                 >
                   {channel.id === 'rule' ? (
                     <BookOpen size={16} className="channel-icon" />
@@ -729,6 +1437,14 @@ export default function Chat() {
                     <Hash size={16} className="channel-icon" />
                   )}
                   <span className="channel-path">{channel.displayName}</span>
+                  {channelNotifications[channel.internalId]?.type === 'unread' && (
+                    <span className="channel-notification-unread" />
+                  )}
+                  {channelNotifications[channel.internalId]?.type === 'mention' && (
+                    <span className="channel-notification-mention">
+                      {channelNotifications[channel.internalId]?.count || 0}
+                    </span>
+                  )}
                 </button>
               ))}
             </nav>
@@ -738,22 +1454,62 @@ export default function Chat() {
             <h3 className="channel-category-title">ボイスチャンネル</h3>
             <nav className="channel-list">
               {vcChannels.map((channel) => (
-                <div key={channel.id} className="vc-channel-wrapper">
-                  <button
-                    className={`channel-item ${selectedChannel.id === channel.id ? 'active' : ''}`}
-                    onClick={() => handleChannelClick(channel.id)}
-                  >
-                    <Volume2 size={16} className="channel-icon" />
-                    <span className="channel-path">{channel.displayName}</span>
-                  </button>
-                  {(membersByChannelId[channel.id] ?? []).length > 0 && (
+                <div key={channel.internalId} className="vc-channel-wrapper">
+                  <div className="vc-channel-header-row" style={{ position: 'relative' }}>
+                    <button
+                      className={`channel-item ${(!isDMRoute && selectedChannel.internalId === channel.internalId) ? 'active' : ''} ${channelNotifications[channel.internalId]?.type || ''}`}
+                      onClick={() => handleChannelClick(channel.internalId)}
+                    >
+                      <Volume2 size={16} className="channel-icon" />
+                      {renamingChannelId === channel.internalId ? (
+                        <input
+                          type="text"
+                          className="vc-rename-input"
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onKeyDown={handleRenameKeyDown}
+                          onClick={(e) => e.stopPropagation()}
+                          autoFocus
+                        />
+                      ) : (
+                        <span className="channel-path">{getChannelDisplayName(channel.internalId, channel.displayName)}</span>
+                      )}
+                    </button>
+                    {channelNotifications[channel.internalId]?.type === 'unread' && (
+                      <span className="channel-notification-unread" style={{ right: renamingChannelId === channel.internalId ? '50px' : '30px' }} />
+                    )}
+                    {channelNotifications[channel.internalId]?.type === 'mention' && (
+                      <span className="channel-notification-mention" style={{ right: renamingChannelId === channel.internalId ? '58px' : '38px' }}>
+                        {channelNotifications[channel.internalId]?.count || 0}
+                      </span>
+                    )}
+                    {renamingChannelId === channel.internalId ? (
+                      <div className="vc-rename-actions">
+                        <button className="vc-rename-action-btn vc-rename-confirm" onClick={handleConfirmRename} title="確定">
+                          <Check size={14} />
+                        </button>
+                        <button className="vc-rename-action-btn vc-rename-cancel" onClick={handleCancelRename} title="キャンセル">
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      <button 
+                        className="vc-rename-btn"
+                        onClick={(e) => handleStartRenameVC(channel.internalId, getChannelDisplayName(channel.internalId, channel.displayName), e)}
+                        title="名前を変える"
+                      >
+                        <Pencil size={12} />
+                      </button>
+                    )}
+                  </div>
+                  {(membersByChannelId[channel.internalId] ?? []).length > 0 && (
                     <div className="vc-participants">
-                      {(membersByChannelId[channel.id] ?? []).map((userId) => {
-                        const user = dmUsers.find(u => u.id === userId) || (userId === currentUser.id ? currentUser : null)
+                      {(membersByChannelId[channel.internalId] ?? []).map((userInternalId) => {
+                        const user = dmUsers.find(u => u.internalId === userInternalId) || (userInternalId === currentUser.internalId ? currentUser : null)
                         return user ? (
-                          <div key={userId} className="vc-participant">
+                          <div key={userInternalId} className="vc-participant">
                             <Avatar className="vc-participant-avatar">
-                              <AvatarImage src={getUserAvatar(userId)} alt={user.name} />
+                              <AvatarImage src={getUserAvatar(userInternalId)} alt={user.name} />
                               <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
                             </Avatar>
                             <span className="vc-participant-name">{user.name}</span>
@@ -785,7 +1541,7 @@ export default function Chat() {
                 ) : (
                   <Hash size={20} className="header-icon" />
                 )}
-                <h1>{selectedChannel.displayName}</h1>
+                <h1>{getChannelDisplayName(selectedChannel.internalId, selectedChannel.displayName)}</h1>
               </>
             )}
           </div>
@@ -794,7 +1550,7 @@ export default function Chat() {
         {!isDMRoute && showVCModal && pendingVCChannel ? (
           <div className="vc-join-container">
             <VCJoinModal
-              channelName={pendingVCChannel.displayName}
+              channelName={getChannelDisplayName(pendingVCChannel.internalId, pendingVCChannel.displayName)}
               isMicOn={isMicOn}
               isSpeakerOn={isSpeakerOn}
               onToggleMic={toggleMic}
@@ -806,14 +1562,16 @@ export default function Chat() {
           </div>
         ) : !isDMRoute && isConnectedToVC && selectedChannel.category === 'vc' && viewingVCChannel ? (
           <VCView
-              channelName={viewingVCChannel.displayName}
+              channelName={getChannelDisplayName(viewingVCChannel.internalId, viewingVCChannel.displayName)}
               participants={viewingOtherParticipants}
               currentUser={currentUser}
               currentUserInChannel={currentUserInViewingVC}
               isMicOn={isMicOn}
               isSpeakerOn={isSpeakerOn}
               isScreenSharing={isScreenSharing}
-              isParticipantScreenSharing={{}}
+              isParticipantScreenSharing={participantScreenSharing}
+              mutedUsers={mutedUsers}
+              speakingUsers={speakingUsers}
               onToggleMic={toggleMic}
               onToggleSpeaker={toggleSpeaker}
               onToggleScreenShare={handleToggleScreenShare}
@@ -835,6 +1593,7 @@ export default function Chat() {
                       (message.timestamp.getTime() - messages[index - 1].timestamp.getTime()) <= 60000;
 
                     const showDateSeparator = index === 0 || dateChanged;
+                    const isMentioned = message.content.includes(`<@${CURRENT_USER_INTERNAL_ID}>`);
 
                     return (
                       <div key={message.id} className="message-item-wrapper">
@@ -846,7 +1605,7 @@ export default function Chat() {
                           </div>
                         )}
                         <div 
-                          className={`message ${isConsecutive ? 'consecutive' : ''}`}
+                          className={`message ${isConsecutive ? 'consecutive' : ''} ${isMentioned ? 'mentioned' : ''}`}
                         >
                           {isConsecutive && (
                             <div className="message-time-gutter">
@@ -902,8 +1661,9 @@ export default function Chat() {
                                       className={`reaction-pill ${hasReacted ? 'reacted' : ''}`}
                                       onClick={() => {
                                         setReactionTargetMessageId(message.id)
-                                        setMessages(prev =>
-                                          prev.map(m => {
+                                        setMessagesByChannel(prev => {
+                                          const pool = prev[currentChatId] ?? []
+                                          const updatedPool = pool.map(m => {
                                             if (m.id !== message.id) return m
 
                                             const currentReactions = m.reactions ?? {}
@@ -922,8 +1682,12 @@ export default function Chat() {
                                             }
 
                                             return { ...m, reactions: nextReactions }
-                                          }),
-                                        )
+                                          })
+                                          return {
+                                            ...prev,
+                                            [currentChatId]: updatedPool
+                                          }
+                                        })
                                       }}
                                       title={hasReacted ? 'リアクションを削除' : 'リアクションを追加'}
                                     >
@@ -932,6 +1696,15 @@ export default function Chat() {
                                     </button>
                                   )
                                 })}
+                                {/* +マークのボタン */}
+                                <button
+                                  type="button"
+                                  className="reaction-pill reaction-add-pill"
+                                  onClick={(e) => handleMessageEmojiClick(message.id, e)}
+                                  title="リアクションを追加"
+                                >
+                                  <span style={{ fontSize: '14px', fontWeight: '600', color: '#5865f2' }}>+</span>
+                                </button>
                               </div>
                             )}
                           </div>
@@ -954,14 +1727,18 @@ export default function Chat() {
                             >
                               <Reply size={18} />
                             </Button>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="message-action-button"
-                              title="その他"
-                            >
-                              <MoreHorizontal size={18} />
-                            </Button>
+                            {/* 削除ボタン（「その他」の代わりに一番右に配置） */}
+                            {(message.userId === 'current-user' || message.userId === CURRENT_USER_INTERNAL_ID) && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="message-action-button message-action-delete"
+                                title="メッセージを削除"
+                                onClick={() => handleDeleteMessage(message.id)}
+                              >
+                                <Trash2 size={18} />
+                              </Button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -998,7 +1775,26 @@ export default function Chat() {
                 </div>
               )}
               <form className="message-input-form" onSubmit={handleSendMessage}>
-            <div className="input-wrapper">
+            <div className="input-wrapper" style={{ position: 'relative' }}>
+              {showMentionSuggestions && filteredUsers.length > 0 && (
+                <div className="mention-suggestions" ref={mentionSuggestionsRef}>
+                  {filteredUsers.map((user, idx) => (
+                    <button
+                      key={user.internalId}
+                      type="button"
+                      className={`mention-suggestion-item ${idx === activeMentionIndex ? 'selected' : ''}`}
+                      onClick={() => handleSelectMention(user)}
+                    >
+                      <Avatar className="mention-suggestion-avatar">
+                        <AvatarImage src={getUserAvatar(user.internalId)} alt={user.name} />
+                        <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
+                      </Avatar>
+                      <span className="mention-suggestion-name">{user.name}</span>
+                      <span className="mention-suggestion-id">{user.internalId}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="plus-menu-container" ref={plusMenuRef}>
                 <Button 
                   type="button"
@@ -1034,11 +1830,13 @@ export default function Chat() {
                 />
               </div>
               <Input
+                ref={inputRef}
                 type="text"
                 className="message-input"
                 placeholder={`${isDMRoute ? dmDisplayName : selectedChannel.displayName} にメッセージを送信`}
                 value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
+                onChange={handleInputChange}
+                onKeyDown={handleInputKeyDown}
               />
               <Button 
                 type="button"
@@ -1089,7 +1887,7 @@ export default function Chat() {
         {/* VC Connection Info - Above User Controls */}
         {isConnectedToVC && connectedVCChannel && (
           <VCConnectionInfo
-            channelName={connectedVCChannel.displayName}
+            channelName={getChannelDisplayName(connectedVCChannel.internalId, connectedVCChannel.displayName)}
             onDisconnect={handleDisconnectVC}
           />
         )}
@@ -1140,17 +1938,28 @@ export default function Chat() {
       </div>
 
       {/* User Profile Panel */}
-      {showUserProfile && selectedUserId && (
+      {showUserProfile && selectedUserId ? (
         <UserProfile
           userId={selectedUserId}
-          userName={selectedUserId === 'current-user' ? 'aiueo aiueioo' : dmUsers.find(u => u.id === selectedUserId)?.name || 'User'}
-          status={selectedUserId === 'current-user' ? 'あーほ' : '今日はいい天気ですね！'}
-          bio={selectedUserId === 'current-user' ? 'Mingle hamatiii' : 'よろしくお願いします！'}
+          userName={selectedUserId === 'current-user' ? userDisplayName : dmUsers.find(u => u.internalId === selectedUserId)?.name || 'User'}
+          status={getUserStatusMessage(selectedUserId)}
+          bio={selectedUserId === 'current-user' ? userBio : 'よろしくお願いします！'}
           onClose={handleCloseProfile}
           isCurrentUser={selectedUserId === 'current-user'}
           avatarSrc={getUserAvatar(selectedUserId)}
         />
-      )}
+      ) : isDMRoute && internalUserId ? (
+        <UserProfile
+          userId={internalUserId}
+          userName={dmUser?.name || 'User'}
+          status={getUserStatusMessage(internalUserId)}
+          bio={internalUserId === currentUser.internalId ? userBio : 'よろしくお願いします！'}
+          onClose={handleCloseProfile}
+          isCurrentUser={internalUserId === currentUser.internalId}
+          avatarSrc={getUserAvatar(internalUserId)}
+          hideCloseButton={true}
+        />
+      ) : null}
 
       {/* Image Modal */}
       {selectedImageUrl && (
@@ -1258,7 +2067,8 @@ export default function Chat() {
                       <input 
                         type="text" 
                         className="settings-input" 
-                        defaultValue="aiueo aiueioo"
+                        value={userDisplayName}
+                        onChange={(e) => setUserDisplayName(e.target.value)}
                         placeholder="表示名を入力"
                       />
                     </div>
@@ -1268,7 +2078,8 @@ export default function Chat() {
                       <input 
                         type="text" 
                         className="settings-input" 
-                        defaultValue="あーほ"
+                        value={userStatusMessage}
+                        onChange={(e) => setUserStatusMessage(e.target.value)}
                         placeholder="ステータスメッセージ"
                       />
                     </div>
@@ -1278,7 +2089,8 @@ export default function Chat() {
                       <textarea 
                         className="settings-textarea" 
                         rows={4}
-                        defaultValue="Mingle hamatiii"
+                        value={userBio}
+                        onChange={(e) => setUserBio(e.target.value)}
                         placeholder="自己紹介を入力してください"
                       />
                     </div>
@@ -1368,14 +2180,60 @@ export default function Chat() {
               {settingsTab === 'notifications' && (
                 <div className="settings-content">
                   <h2 className="settings-content-title">通知設定</h2>
-                  
+
                   <div className="settings-form">
-                    <div className="settings-item">
-                      <label className="settings-checkbox-label">
-                        <input type="checkbox" className="settings-checkbox" defaultChecked />
-                        <span>サウンド通知を有効にする</span>
-                      </label>
+                    <p className="settings-section-hint">ブラウザがバックグラウンドのときに通知を受け取る設定です。</p>
+
+                    <div className="settings-item settings-toggle-item">
+                      <div className="settings-toggle-info">
+                        <span className="settings-toggle-title">デスクトップ通知を有効にする</span>
+                        <span className="settings-toggle-desc">メンションされたときのみ、ブラウザ通知が届きます</span>
+                      </div>
+                      <button
+                        id="toggle-desktop-notif"
+                        className={`settings-toggle-switch ${enableDesktopNotifications ? 'on' : ''}`}
+                        onClick={() => {
+                          const next = !enableDesktopNotifications
+                          setEnableDesktopNotifications(next)
+                          if (next && Notification.permission === 'denied') {
+                            alert('ブラウザの設定で通知がブロックされています。ブラウザの設定から通知を許可してください。')
+                          } else if (next && Notification.permission === 'default') {
+                            Notification.requestPermission()
+                          }
+                        }}
+                        aria-checked={enableDesktopNotifications}
+                        role="switch"
+                      >
+                        <span className="settings-toggle-knob" />
+                      </button>
                     </div>
+
+                    <div className="settings-item settings-toggle-item">
+                      <div className="settings-toggle-info">
+                        <span className="settings-toggle-title">音通知を有効にする</span>
+                        <span className="settings-toggle-desc">メッセージを受け取ったときに通知音が鳴ります</span>
+                      </div>
+                      <button
+                        id="toggle-sound-notif"
+                        className={`settings-toggle-switch ${enableSoundNotifications ? 'on' : ''}`}
+                        onClick={() => setEnableSoundNotifications(prev => !prev)}
+                        aria-checked={enableSoundNotifications}
+                        role="switch"
+                      >
+                        <span className="settings-toggle-knob" />
+                      </button>
+                    </div>
+
+                    {enableDesktopNotifications && Notification.permission === 'granted' && (
+                      <div className="settings-notif-status ok">
+                        ✓ デスクトップ通知が有効になっています
+                      </div>
+                    )}
+                    {enableDesktopNotifications && Notification.permission === 'denied' && (
+                      <div className="settings-notif-status error">
+                        ✕ 通知がブロックされています。ブラウザの設定を確認してください。
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

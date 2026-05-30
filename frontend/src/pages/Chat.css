@@ -185,6 +185,8 @@
 }
 
 .user-item {
+  position: relative;
+  overflow: visible;
   width: 100%;
   display: flex;
   align-items: center;
@@ -195,6 +197,15 @@
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s;
+}
+
+.user-item.active {
+  background-color: #e3e5e8;
+}
+
+.user-item.active .user-name {
+  color: #2e3338;
+  font-weight: 600;
 }
 
 .user-item:hover {
@@ -279,6 +290,8 @@
 }
 
 .channel-item {
+  position: relative;
+  overflow: visible;
   width: 100%;
   display: flex;
   align-items: center;
@@ -336,6 +349,96 @@
 .channel-item.active .channel-path {
   color: #2e3338;
   font-weight: 600;
+}
+
+/* VC Rename Features */
+.vc-channel-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.vc-channel-header-row .channel-item {
+  flex: 1;
+  min-width: 0;
+  padding-right: 2px;
+}
+
+.vc-rename-input {
+  flex: 1;
+  min-width: 0;
+  background-color: #ffffff;
+  border: 1px solid #5865f2;
+  border-radius: 3px;
+  color: #2e3338;
+  font-size: 13px;
+  font-family: monospace;
+  padding: 2px 4px;
+  outline: none;
+  box-shadow: 0 0 0 1px rgba(88, 101, 242, 0.3);
+}
+
+.vc-rename-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 6px;
+}
+
+.vc-rename-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.vc-rename-confirm {
+  color: #23a559;
+}
+.vc-rename-confirm:hover {
+  background-color: rgba(35, 165, 89, 0.1);
+}
+
+.vc-rename-cancel {
+  color: #f23f42;
+}
+.vc-rename-cancel:hover {
+  background-color: rgba(242, 63, 66, 0.1);
+}
+
+.vc-rename-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: #80848e;
+  cursor: pointer;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  margin-right: 4px;
+}
+
+.vc-channel-header-row:hover .vc-rename-btn {
+  opacity: 1;
+  visibility: visible;
+}
+
+.vc-rename-btn:hover {
+  color: #2e3338;
+  background-color: rgba(0, 0, 0, 0.05);
 }
 
 /* Main Content */
@@ -570,16 +673,6 @@
   margin: 0 0.05em;
 }
 
-/* Make standalone emojis slightly bigger */
-.message-content:has(> span:only-child) img.emoji:only-child,
-.message-content > span:only-child:has(img.emoji:only-child) {
-  font-size: 2em;
-}
-
-.message-content > span:only-child img.emoji:only-child {
-  width: 1em;
-  height: 1em;
-}
 
 /* Message Reply Quote */
 .message-reply-quote {
@@ -2623,4 +2716,282 @@
 
 .settings-save-button:active {
   transform: scale(0.98);
+}
+
+/* Mention Badge within Message Texts */
+.mention-badge {
+  background-color: rgba(88, 101, 242, 0.15);
+  color: #5865f2;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 0.95em;
+  display: inline-block;
+  transition: background-color 0.2s, color 0.2s;
+  cursor: pointer;
+}
+
+.mention-badge:hover {
+  background-color: #5865f2;
+  color: #ffffff;
+}
+
+/* Highlighted Message Item on Mentioning */
+.message.mentioned {
+  background-color: rgba(250, 166, 26, 0.08) !important;
+  border-left: 2px solid #faa61a;
+  padding-left: 14px !important;
+}
+
+.message.mentioned::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background-color: #faa61a;
+}
+
+/* Channel Notifications Visual Indicators */
+
+/* Unread: gray half-pill on the LEFT edge (Discord style) */
+.channel-notification-unread {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 8px;
+  background-color: #b5bac1;           /* muted gray */
+  border-radius: 0 4px 4px 0;          /* flat left, rounded right → half-circle facing right */
+  pointer-events: none;
+  transition: height 0.15s ease, background-color 0.15s ease;
+}
+
+/* Mention: red full circle with white text count on the RIGHT edge */
+.channel-notification-mention {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  background-color: #f04747;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 800;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2), 0 0 6px rgba(240, 71, 71, 0.4);
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+/* Mention Autocomplete Suggestions Box */
+.mention-suggestions {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  background-color: #ffffff;
+  border: 1px solid #e3e5e8;
+  border-radius: 8px;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08), 0 4px 20px rgba(0, 0, 0, 0.08);
+  max-height: 220px;
+  overflow-y: auto;
+  z-index: 150;
+  padding: 6px 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.mention-suggestion-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.15s ease;
+}
+
+.mention-suggestion-item:hover {
+  background-color: #f2f3f5;
+}
+
+.mention-suggestion-item.selected {
+  background-color: #e3e5e8;
+}
+
+.mention-suggestion-avatar {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.mention-suggestion-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #2e3338;
+}
+
+.mention-suggestion-id {
+  font-size: 12px;
+  color: #747f8d;
+  margin-left: auto;
+  font-family: monospace;
+}
+
+/* ─── Settings – Notifications tab ───────────────────────────────────────── */
+
+.settings-section-hint {
+  font-size: 13px;
+  color: #5f6368;
+  margin: 0 0 20px 0;
+  line-height: 1.5;
+}
+
+/* Row: label-side + toggle-side */
+.settings-toggle-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid #f2f3f5;
+}
+
+.settings-toggle-item:last-of-type {
+  border-bottom: none;
+}
+
+.settings-toggle-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+}
+
+.settings-toggle-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #2e3338;
+}
+
+.settings-toggle-desc {
+  font-size: 12px;
+  color: #747f8d;
+  line-height: 1.4;
+}
+
+/* The pill toggle switch */
+.settings-toggle-switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 46px;
+  height: 26px;
+  border-radius: 13px;
+  border: none;
+  background-color: #c7c9cc;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  padding: 0;
+}
+
+.settings-toggle-switch.on {
+  background-color: #5865f2;
+}
+
+.settings-toggle-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: #ffffff;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+  transition: left 0.2s ease;
+  pointer-events: none;
+}
+
+.settings-toggle-switch.on .settings-toggle-knob {
+  left: 23px;
+}
+
+/* Permission status badges */
+.settings-notif-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  margin-top: 16px;
+}
+
+.settings-notif-status.ok {
+  background-color: #e6f9ee;
+  color: #2d7a4f;
+}
+
+.settings-notif-status.error {
+  background-color: #fde8e8;
+  color: #c53030;
+}
+
+/* User sidebar status text styling */
+.user-details {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.user-status-sub {
+  font-size: 11px;
+  color: #747f8d;
+  margin-top: 2px;
+  font-weight: 400;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+}
+
+.user-item.active .user-status-sub {
+  color: #5c6066;
+}
+
+/* Reaction Add Button next to existing reaction pills */
+.reaction-pill.reaction-add-pill {
+  padding: 4px 10px;
+  background-color: #f2f3f5;
+  border-color: #e3e5e8;
+  color: #5865f2;
+}
+
+.reaction-pill.reaction-add-pill:hover {
+  background-color: #e3e5e8;
+  border-color: #5865f2;
+}
+
+/* Red Delete Message Button */
+.message-action-button.message-action-delete {
+  color: #ef4444 !important;
+}
+
+.message-action-button.message-action-delete:hover {
+  background-color: #fde8e8 !important;
+  color: #ef4444 !important;
 }

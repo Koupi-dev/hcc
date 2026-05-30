@@ -3,6 +3,7 @@ import VideoEmbed from './VideoEmbed'
 import CustomVideoPlayer from './CustomVideoPlayer'
 import CustomAudioPlayer from './CustomAudioPlayer'
 import type { Message } from '@/types/chat'
+import { dmUsers, CURRENT_USER_INTERNAL_ID } from '@/data/mockData'
 
 type EmbedInfo = {
   type: 'youtube' | 'twitch' | 'gif'
@@ -82,29 +83,50 @@ export default function MessageContent({ content, messageId, embedMetaCache, fil
         )
       }
       
-      const emojiRegex = /(\p{Emoji_Presentation}|\p{Emoji}\uFE0F)/gu
-      if (emojiRegex.test(part)) {
-        const segments = part.split(emojiRegex)
-        return (
-          <span key={i}>
-            {segments.map((segment, j) => {
-              if (segment && segment.match(emojiRegex)) {
-                return (
-                  <img
-                    key={j}
-                    src={getTwemojiUrl(segment)}
-                    alt={segment}
-                    className="emoji"
-                    draggable="false"
-                  />
-                )
-              }
-              return segment
-            })}
-          </span>
-        )
-      }
-      return <span key={i}>{part}</span>
+      const mentionRegex = /(<@\d{20}>)/g
+      const subParts = part.split(mentionRegex)
+
+      return (
+        <span key={i}>
+          {subParts.map((subPart, idx) => {
+            const mentionMatch = subPart.match(/^<@(\d{20})>$/)
+            if (mentionMatch) {
+              const userId = mentionMatch[1]
+              const user = dmUsers.find(u => u.internalId === userId) || (userId === CURRENT_USER_INTERNAL_ID ? { name: 'aiueo aiueioo' } : null)
+              const userName = user ? user.name : userId
+              return (
+                <span key={idx} className="mention-badge">
+                  @{userName}
+                </span>
+              )
+            }
+
+            const emojiRegex = /(\p{Emoji_Presentation}|\p{Emoji}\uFE0F)/gu
+            if (emojiRegex.test(subPart)) {
+              const segments = subPart.split(emojiRegex)
+              return (
+                <span key={idx}>
+                  {segments.map((segment, j) => {
+                    if (segment && segment.match(emojiRegex)) {
+                      return (
+                        <img
+                          key={j}
+                          src={getTwemojiUrl(segment)}
+                          alt={segment}
+                          className="emoji"
+                          draggable="false"
+                        />
+                      )
+                    }
+                    return segment
+                  })}
+                </span>
+              )
+            }
+            return subPart
+          })}
+        </span>
+      )
     })
 
     return { textContent, embeds }

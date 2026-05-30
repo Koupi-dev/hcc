@@ -10,8 +10,22 @@ function App() {
         
         <Route path="/login" element={<Login />} />
         
-        <Route path="/chat" element={<Navigate to="/chat/rule" replace />} />
-        <Route path="/chat/:channelId" element={<Chat />} />
+        {/* DM: /channels/@me/:internalUserId */}
+        <Route path="/channels/@me/:internalUserId" element={<Chat />} />
+        
+        {/* テキストチャンネル: /channels/chat/:internalChannelId */}
+        <Route path="/channels/chat/:internalChannelId" element={<Chat />} />
+        
+        {/* VC: /channels/vc/:internalChannelId */}
+        <Route path="/channels/vc/:internalChannelId" element={<Chat />} />
+
+        {/* デフォルト: 最初のテキストチャンネルにリダイレクト */}
+        <Route path="/channels" element={<Navigate to="/channels/chat/10000000000000000001" replace />} />
+        <Route path="/channels/*" element={<Navigate to="/channels/chat/10000000000000000001" replace />} />
+
+        {/* 旧ルートからの移行 */}
+        <Route path="/chat" element={<Navigate to="/channels/chat/10000000000000000001" replace />} />
+        <Route path="/chat/*" element={<Navigate to="/channels/chat/10000000000000000001" replace />} />
       </Routes>
     </BrowserRouter>
   )
