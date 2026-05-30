@@ -1,100 +1,94 @@
 import { useCallback, useEffect, useState } from 'react'
-import { channels } from '@/data/mockData'
+import { getSocket } from '@/lib/socket'
+
+type VoiceUser = {
+  socketId: string
+  internalId: string
+  displayName: string
+  roomId: string
+  isMuted: boolean
+  isSpeaking: boolean
+  isScreenSharing: boolean
+}
 
 type VCParticipantsByChannelId = Record<string, string[]>
 
 export function useVCParticipants() {
   const [membersByChannelId, setMembersByChannelId] = useState<VCParticipantsByChannelId>({})
-  const [isLoadingVCParticipants, setIsLoadingVCParticipants] = useState(true)
 
   // ミュート中のユーザーID セット（全チャンネル共通）
   const [mutedUsers, setMutedUsers] = useState<Set<string>>(new Set())
   // 発話中のユーザーID セット（全チャンネル共通）
   const [speakingUsers, setSpeakingUsers] = useState<Set<string>>(new Set())
+  // 画面共有中のユーザー
+  const [screenSharingUsers, setScreenSharingUsers] = useState<Set<string>>(new Set())
+  // internalId to socketId mapping
+  const [userSocketIds, setUserSocketIds] = useState<Record<string, string>>({})
 
   useEffect(() => {
-    let cancelled = false
+    const socket = getSocket()
 
-    const timer = window.setTimeout(() => {
-      if (cancelled) return
+    const handleVoiceState = (users: VoiceUser[]) => {
+      const byChannel: VCParticipantsByChannelId = {}
+      const muted = new Set<string>()
+      const speaking = new Set<string>()
+      const sharing = new Set<string>()
+      const socketIds: Record<string, string> = {}
 
-      // internalIdをキーにして参加者を管理
-      const initial: VCParticipantsByChannelId = {}
-      for (const c of channels) {
-        if (c.category !== 'vc') continue
-        initial[c.internalId] = [...(c.participants ?? [])]
+      for (const u of users) {
+        if (!byChannel[u.roomId]) byChannel[u.roomId] = []
+        byChannel[u.roomId].push(u.internalId)
+        if (u.isMuted) muted.add(u.internalId)
+        if (u.isSpeaking) speaking.add(u.internalId)
+        if (u.isScreenSharing) sharing.add(u.internalId)
+        socketIds[u.internalId] = u.socketId
       }
 
-      // 初期ロード完了前に join/switch した変更を上書きしない
-      setMembersByChannelId(prev => {
-        const next: VCParticipantsByChannelId = { ...initial }
-        for (const [channelId, memberIds] of Object.entries(prev)) {
-          const base = next[channelId] ?? []
-          next[channelId] = Array.from(new Set([...base, ...memberIds]))
-        }
-        return next
-      })
-      setIsLoadingVCParticipants(false)
-    }, 400)
+      setMembersByChannelId(byChannel)
+      setMutedUsers(muted)
+      setSpeakingUsers(speaking)
+      setScreenSharingUsers(sharing)
+      setUserSocketIds(socketIds)
+    }
+
+    socket.on('voice_state_update', handleVoiceState)
 
     return () => {
-      cancelled = true
-      window.clearTimeout(timer)
+      socket.off('voice_state_update', handleVoiceState)
     }
   }, [])
 
-  const addMember = useCallback((channelInternalId: string, userInternalId: string) => {
-    setMembersByChannelId(prev => {
-      const existing = prev[channelInternalId] ?? []
-      if (existing.includes(userInternalId)) return prev
-      return {
-        ...prev,
-        [channelInternalId]: [...existing, userInternalId],
-      }
-    })
+  const addMember = useCallback((_channelInternalId: string, _userInternalId: string) => {
+    // No-op: managed by server voice_state_update
   }, [])
 
-  const removeMember = useCallback((channelInternalId: string, userInternalId: string) => {
-    setMembersByChannelId(prev => {
-      const existing = prev[channelInternalId] ?? []
-      if (!existing.includes(userInternalId)) return prev
-      return {
-        ...prev,
-        [channelInternalId]: existing.filter(id => id !== userInternalId),
-      }
-    })
-    // チャンネルから抜けたらミュート・発話状態もクリア
-    setMutedUsers(prev => { const s = new Set(prev); s.delete(userInternalId); return s })
-    setSpeakingUsers(prev => { const s = new Set(prev); s.delete(userInternalId); return s })
+  const removeMember = useCallback((_channelInternalId: string, _userInternalId: string) => {
+    // No-op: managed by server voice_state_update
   }, [])
 
-  const muteUser = useCallback((userInternalId: string) => {
-    setMutedUsers(prev => new Set([...prev, userInternalId]))
-    setSpeakingUsers(prev => { const s = new Set(prev); s.delete(userInternalId); return s })
+  const muteUser = useCallback((_userInternalId: string) => {
+    // No-op: managed by server
   }, [])
 
-  const unmuteUser = useCallback((userInternalId: string) => {
-    setMutedUsers(prev => { const s = new Set(prev); s.delete(userInternalId); return s })
+  const unmuteUser = useCallback((_userInternalId: string) => {
+    // No-op: managed by server
   }, [])
 
-  const setSpeaking = useCallback((userInternalId: string, speaking: boolean) => {
-    setSpeakingUsers(prev => {
-      const s = new Set(prev)
-      if (speaking) s.add(userInternalId)
-      else s.delete(userInternalId)
-      return s
-    })
+  const setSpeaking = useCallback((_userInternalId: string, _speaking: boolean) => {
+    // No-op: managed by server
   }, [])
 
   return {
     membersByChannelId,
-    isLoadingVCParticipants,
+    isLoadingVCParticipants: false,
     mutedUsers,
     speakingUsers,
+    screenSharingUsers,
     addMember,
     removeMember,
     muteUser,
     unmuteUser,
     setSpeaking,
+    userSocketIds,
   }
 }

@@ -3,7 +3,7 @@ import VideoEmbed from './VideoEmbed'
 import CustomVideoPlayer from './CustomVideoPlayer'
 import CustomAudioPlayer from './CustomAudioPlayer'
 import type { Message } from '@/types/chat'
-import { dmUsers, CURRENT_USER_INTERNAL_ID } from '@/data/mockData'
+import { dmUsers } from '@/data/mockData'
 
 type EmbedInfo = {
   type: 'youtube' | 'twitch' | 'gif'
@@ -92,7 +92,9 @@ export default function MessageContent({ content, messageId, embedMetaCache, fil
             const mentionMatch = subPart.match(/^<@(\d{20})>$/)
             if (mentionMatch) {
               const userId = mentionMatch[1]
-              const user = dmUsers.find(u => u.internalId === userId) || (userId === CURRENT_USER_INTERNAL_ID ? { name: 'aiueo aiueioo' } : null)
+              const currentUserId = localStorage.getItem('internalId') || ''
+              const currentDisplayName = localStorage.getItem('displayName') || 'あなた'
+              const user = dmUsers.find(u => u.internalId === userId) || (userId === currentUserId ? { name: currentDisplayName } : null)
               const userName = user ? user.name : userId
               return (
                 <span key={idx} className="mention-badge">

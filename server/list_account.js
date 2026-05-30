@@ -50,7 +50,7 @@ const path = require('path');
       );
       
       const dmCount = await db.get(
-        'SELECT COUNT(*) as count FROM dm_channels WHERE user1 = ? OR user2 = ?',
+        'SELECT COUNT(*) as count FROM dm_channels WHERE member1 = ? OR member2 = ?',
         [acc.accountId, acc.accountId]
       );
 

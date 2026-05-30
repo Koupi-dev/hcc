@@ -1,23 +1,34 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { apiFetch } from '@/lib/socket'
 import './Login.css'
 
 export default function Login() {
   const [userId, setUserId] = useState('')
   const [password, setPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState('')
   const navigate = useNavigate()
 
-  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setIsLoading(true)
-    console.log('Login:', { userId, password })
-    // TODO: 認証処理
-    // 仮のローディング（実際の認証処理に置き換える）
-    setTimeout(() => {
+    setError('')
+    try {
+      const data = await apiFetch('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ accountId: userId, password }),
+      })
+      localStorage.setItem('token', data.token)
+      localStorage.setItem('accountId', data.profile.accountId)
+      localStorage.setItem('internalId', data.profile.internalId)
+      localStorage.setItem('displayName', data.profile.displayName || data.profile.firstName)
+      navigate('/channels')
+    } catch (err: any) {
+      setError(err.message || 'ログインに失敗しました')
+    } finally {
       setIsLoading(false)
-      navigate('/chat')
-    }, 2000)
+    }
   }
 
   return (
@@ -27,6 +38,8 @@ export default function Login() {
         <div className="login-box">
           <h1 className="login-title">はまちりんぐちゃっと にログイン</h1>
         
+        {error && <p style={{ color: '#f87171', textAlign: 'center', marginBottom: '12px', fontSize: '14px' }}>{error}</p>}
+
         <form onSubmit={handleSubmit} className="login-form">
           <div className="form-group">
             <label htmlFor="userId">ID</label>

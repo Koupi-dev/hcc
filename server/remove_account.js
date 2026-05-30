@@ -50,7 +50,7 @@ if (!accountId) {
   
   // DMチャンネルを削除
   const dmResult = await db.run(
-    'DELETE FROM dm_channels WHERE user1 = ? OR user2 = ?',
+    'DELETE FROM dm_channels WHERE member1 = ? OR member2 = ?',
     [accountId, accountId]
   );
   console.log(`   - DMチャンネル: ${dmResult.changes}件削除`);
@@ -60,8 +60,12 @@ if (!accountId) {
   console.log(`   - 既読状態: ${readResult.changes}件削除`);
   
   // ホワイトボードデータを削除
-  const whiteboardResult = await db.run('DELETE FROM whiteboard WHERE accountId = ?', [accountId]);
-  console.log(`   - ホワイトボード: ${whiteboardResult.changes}件削除`);
+  try {
+    const whiteboardResult = await db.run('DELETE FROM whiteboard WHERE accountId = ?', [accountId]);
+    console.log(`   - ホワイトボード: ${whiteboardResult.changes}件削除`);
+  } catch (e) {
+    // ホワイトボードテーブルが存在しない場合はスキップ
+  }
   
   // アカウント本体を削除
   await db.run('DELETE FROM accounts WHERE accountId = ?', [accountId]);

@@ -14,8 +14,9 @@ import MessageContent from '@/components/MessageContent'
 import { useVoiceChannel } from '@/hooks/useVoiceChannel'
 import { useVCParticipants } from '@/hooks/useVCParticipants'
 import { getUserAvatar, getInitials } from '@/lib/avatars'
-import { channels, dmUsers, CURRENT_USER_INTERNAL_ID, findChannelByInternalId, findUserByInternalId } from '@/data/mockData'
-import type { Message } from '@/types/chat'
+import { dmUsers, findChannelByInternalId, findUserByInternalId, setChannels, setDmUsers, setCurrentUser } from '@/data/mockData'
+import { connectSocket, getSocket, apiFetch } from '@/lib/socket'
+import type { Channel, User, Message } from '@/types/chat'
 import jaruImage from '@/assets/jaru.webp'
 import './Chat.css'
 
@@ -150,13 +151,16 @@ export default function Chat() {
     closeVCModal,
     toggleMic,
     toggleSpeaker,
+    startScreenShare,
+    stopScreenShare,
+    remoteStreams,
+    localScreenStream,
   } = useVoiceChannel()
 
   // VC participants (single async-managed state)
-  const { membersByChannelId, addMember, removeMember, mutedUsers, speakingUsers, muteUser, unmuteUser, setSpeaking } = useVCParticipants()
+  const { membersByChannelId, addMember, removeMember, mutedUsers, speakingUsers, userSocketIds } = useVCParticipants()
   
   // VC channel rename state
-  const [channelNames, setChannelNames] = useState<Record<string, string>>({})
   const [renamingChannelId, setRenamingChannelId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
 
@@ -166,99 +170,30 @@ export default function Chat() {
   const [participantScreenSharing, setParticipantScreenSharing] = useState<Record<string, boolean>>({})
 
   // User Profile State
-  const [userDisplayName, setUserDisplayName] = useState('aiueo aiueioo')
-  const [userStatusMessage, setUserStatusMessage] = useState('あーほ')
-  const [userBio, setUserBio] = useState('Mingle hamatiii')
+  const [userDisplayName, setUserDisplayName] = useState(() => localStorage.getItem('displayName') || '')
+  const [userStatusMessage, setUserStatusMessage] = useState('')
+  const [userBio, setUserBio] = useState('')
+  const [userAvatar, setUserAvatar] = useState('')
+  const [userBanner, setUserBanner] = useState('')
+  const [dataLoaded, setDataLoaded] = useState(false)
+  const [allMembers, setAllMembers] = useState<{accountId: string, internalId: string, firstName: string, displayName: string, avatarUrl?: string, bannerUrl?: string, bio?: string}[]>([])
 
   const currentUser = useMemo(() => ({
-    id: 'current-user',
-    internalId: CURRENT_USER_INTERNAL_ID,
+    id: localStorage.getItem('internalId') || '',
+    internalId: localStorage.getItem('internalId') || '',
     name: userDisplayName,
-    status: 'online' as const
-  }), [userDisplayName])
+    status: 'online' as const,
+    avatarUrl: userAvatar,
+    bannerUrl: userBanner,
+  }), [userDisplayName, userAvatar, userBanner])
 
-  // Channel-specific messages mapping state (each channel / DM has its own independent history)
-  const [messagesByChannel, setMessagesByChannel] = useState<Record<string, Message[]>>(() => {
-    const now = new Date()
-    return {
-      '10000000000000000001': [
-        {
-          id: 'init-r1',
-          userId: 'system',
-          userName: 'System',
-          content: 'はまちりんぐちゃっとへようこそ！このチャンネルはサーバーのルールです。',
-          timestamp: new Date(now.getTime() - 86400000),
-          reactions: {} as Record<string, string[]>,
-        },
-        {
-          id: 'init-r2',
-          userId: '20000000000000000002',
-          userName: 'Friend1',
-          content: 'みんなで仲良く、マナーを守って使いましょう！🤝',
-          timestamp: new Date(now.getTime() - 86000000),
-          reactions: { '👍': ['20000000000000000003'] } as Record<string, string[]>,
-        }
-      ],
-      '10000000000000000002': [
-        {
-          id: 'init-j1',
-          userId: '20000000000000000003',
-          userName: 'Friend2',
-          content: '昨日のジャルジャルの新しいコント動画、マジで腹ちぎれるほど笑ったわｗｗｗ',
-          timestamp: new Date(now.getTime() - 3600000),
-          reactions: { '😂': ['20000000000000000004', 'current-user'] } as Record<string, string[]>,
-        },
-        {
-          id: 'init-j2',
-          userId: '20000000000000000004',
-          userName: 'Friend3',
-          content: 'それな！あの独特のシュールな世界観が最高だよね。',
-          timestamp: new Date(now.getTime() - 1800000),
-          reactions: { '🔥': ['20000000000000000003'] } as Record<string, string[]>,
-        }
-      ],
-      '10000000000000000003': [
-        {
-          id: 'init-g1',
-          userId: '20000000000000000002',
-          userName: 'Friend1',
-          content: '新しくはまちりんぐちゃっとのサーバーを立ち上げてみました！雑談など自由にどうぞ！🌟',
-          timestamp: new Date(now.getTime() - 7200000),
-          reactions: { '🎉': ['20000000000000000003', '20000000000000000004'] } as Record<string, string[]>,
-        }
-      ],
-      '20000000000000000002': [
-        {
-          id: 'init-d1',
-          userId: '20000000000000000002',
-          userName: 'Friend1',
-          content: 'お疲れ様！今日もし夜暇だったら、後で一緒にVCでゲームでもしない？🎮',
-          timestamp: new Date(now.getTime() - 4000000),
-          reactions: {} as Record<string, string[]>,
-        }
-      ],
-      '20000000000000000003': [
-        {
-          id: 'init-d2',
-          userId: '20000000000000000003',
-          userName: 'Friend2',
-          content: 'この前の開発用のデザイン資料、共有ありがとう！めちゃくちゃ参考になった！',
-          timestamp: new Date(now.getTime() - 10000000),
-          reactions: { '👍': ['current-user'] } as Record<string, string[]>,
-        }
-      ],
-      '20000000000000000004': [
-        {
-          id: 'init-d3',
-          userId: '20000000000000000004',
-          userName: 'Friend3',
-          content: '了解です！頼まれてた資料の件、明日の午前中までにまとめ直しておきますね〜！✨',
-          timestamp: new Date(now.getTime() - 5000000),
-          reactions: {} as Record<string, string[]>,
-        }
-      ],
-    }
-  })
+  // Channel-specific messages mapping state (loaded from server)
+  const [messagesByChannel, setMessagesByChannel] = useState<Record<string, Message[]>>({})
+  
+  // Real-time Channels State
+  const [localChannels, setLocalChannels] = useState<Channel[]>([])
+  
+
 
   const [inputValue, setInputValue] = useState('')
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
@@ -278,10 +213,7 @@ export default function Chat() {
   const mentionSuggestionsRef = useRef<HTMLDivElement>(null)
 
   // Channel Notifications State (unread or mention + count)
-  const [channelNotifications, setChannelNotifications] = useState<Record<string, { type: 'none' | 'unread' | 'mention'; count: number }>>({
-    '10000000000000000002': { type: 'unread', count: 0 },
-    '10000000000000000003': { type: 'mention', count: 1 },
-  })
+  const [channelNotifications, setChannelNotifications] = useState<Record<string, { type: 'none' | 'unread' | 'mention'; count: number }>>({})
 
   // Mention suggestions UI state
   const [showMentionSuggestions, setShowMentionSuggestions] = useState(false)
@@ -314,14 +246,13 @@ export default function Chat() {
   }, [messagesByChannel, dmUsers])
 
   const getUserStatusMessage = useCallback((userId: string) => {
-    if (userId === 'current-user' || userId === CURRENT_USER_INTERNAL_ID) {
+    if (userId === currentUser.internalId) {
       return userStatusMessage
     }
-    if (userId === '20000000000000000002') return '今日はいい天気ですね！'
-    if (userId === '20000000000000000003') return 'よろしくお願いします！'
-    if (userId === '20000000000000000004') return 'ミーティング中'
-    return 'ステータスメッセージはありません'
-  }, [userStatusMessage])
+    const member = allMembers.find(m => m.internalId === userId)
+    if (member) return member.displayName || member.firstName
+    return ''
+  }, [userStatusMessage, currentUser.internalId, allMembers])
 
   // Clean up screen sharing for users who left VC
   useEffect(() => {
@@ -495,14 +426,40 @@ export default function Chat() {
   const dmDisplayName = dmUser ? `# ${dmUser.name}` : '# dm-name'
 
   // 選択中のチャンネルを特定
-  const selectedChannel = (isChatRoute || isVCRoute) && internalChannelId
-    ? findChannelByInternalId(internalChannelId) || channels[0]
-    : channels[0]
+  const selectedChannel = ((isChatRoute || isVCRoute) && internalChannelId
+    ? findChannelByInternalId(internalChannelId) || localChannels[0]
+    : localChannels[0]) || { internalId: '', name: '', displayName: '', category: 'text' as const }
 
-  // チャンネルの表示名を取得するヘルパー（リネーム対応）
-  const getChannelDisplayName = (channelInternalId: string, defaultName: string) => {
-    return channelNames[channelInternalId] || defaultName
-  }
+  // Check write permissions for "ルール" and "ジャルジャル"
+  const isRestrictedChannel = !isDMRoute && (
+    selectedChannel.internalId === '59519306642961598809' || 
+    selectedChannel.internalId === '76452634932084464634' ||
+    selectedChannel.name === 'rule' ||
+    selectedChannel.name === 'jarujaru' ||
+    selectedChannel.displayName === 'ルール' ||
+    selectedChannel.displayName === 'ジャルジャル'
+  )
+  const currentLoggedAccountId = localStorage.getItem('accountId') || ''
+  const canWriteInCurrentChannel = !isRestrictedChannel || currentLoggedAccountId === 'user_4cd9001d'
+
+  const getUserAvatarUrl = useCallback((userId: string) => {
+    if (userId === currentUser.internalId) {
+      if (userAvatar) return userAvatar
+    }
+    const member = allMembers.find((m: any) => m.internalId === userId || m.accountId === userId)
+    if (member?.avatarUrl) return member.avatarUrl
+    return getUserAvatar(userId)
+  }, [allMembers, currentUser.internalId, userAvatar])
+
+  const getUserBannerUrl = useCallback((userId: string) => {
+    if (userId === currentUser.internalId) {
+      if (userBanner) return userBanner
+    }
+    const member = allMembers.find((m: any) => m.internalId === userId || m.accountId === userId)
+    if (member?.bannerUrl) return member.bannerUrl
+    return ''
+  }, [allMembers, currentUser.internalId, userBanner])
+
 
   // Memoized current chat ID — depends on isDMRoute & selectedChannel (declared above)
   const currentChatId = useMemo(() => {
@@ -516,10 +473,22 @@ export default function Chat() {
 
   useEffect(() => {
     // パスが /channels だけの場合はデフォルトチャンネルへリダイレクト
-    if (!internalChannelId && !internalUserId) {
-      navigate(`/channels/chat/${channels[0].internalId}`)
+    if (dataLoaded && localChannels.length > 0 && !internalChannelId && !internalUserId) {
+      const generalChannel = localChannels.find(c => c.name === 'general' || c.displayName === '全般') || localChannels[0]
+      navigate(`/channels/chat/${generalChannel.internalId}`)
     }
-  }, [internalChannelId, internalUserId, navigate])
+  }, [dataLoaded, localChannels, internalChannelId, internalUserId, navigate])
+
+  // Auto-normalize Route URL to match active channel ID once loaded
+  useEffect(() => {
+    if (dataLoaded && localChannels.length > 0 && selectedChannel) {
+      if (isChatRoute && internalChannelId !== selectedChannel.internalId) {
+        navigate(`/channels/chat/${selectedChannel.internalId}`, { replace: true })
+      } else if (isVCRoute && internalChannelId !== selectedChannel.internalId) {
+        navigate(`/channels/vc/${selectedChannel.internalId}`, { replace: true })
+      }
+    }
+  }, [dataLoaded, selectedChannel, isChatRoute, isVCRoute, internalChannelId, navigate])
 
   // Close emoji picker when clicking outside
   useEffect(() => {
@@ -565,7 +534,7 @@ export default function Chat() {
     }
   }, [showMentionSuggestions])
 
-  // Clear notification for selected channel or DM user
+  // Clear notification for selected channel or DM user & persist to SQLite DB
   useEffect(() => {
     const activeId = isDMRoute ? internalUserId : selectedChannel?.internalId
     if (activeId) {
@@ -576,6 +545,13 @@ export default function Chat() {
         }
         return prev
       })
+
+      // Persist read state to SQLite Database
+      apiFetch('/read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channelId: activeId })
+      }).catch(err => console.error('Failed to persist read state to DB:', err))
     }
   }, [isDMRoute, internalUserId, selectedChannel?.internalId])
 
@@ -601,358 +577,309 @@ export default function Chat() {
     [enableSoundNotifications, enableDesktopNotifications]
   )
 
-  // ── Rich mock activity engine ─────────────────────────────────────────────
-  // Runs continuously; simulates chat messages (with mentions & emoji),
-  // reactions on recent messages, and VC join / leave / mute events.
+  const fireNotificationRef = useRef(fireIncomingNotification)
   useEffect(() => {
-    // ---- conversation pools ------------------------------------------------
-    const CONVO: string[] = [
-      // casual
-      `最近どう？`,
-      `ちょっと聞いてもいい？`,
-      `今日めっちゃ眠い 😴`,
-      `それな〜`,
-      `マジ？知らんかった笑`,
-      `草`,
-      `えー！マジで？`,
-      `おつかれ〜！`,
-      `ありがとう！助かった`,
-      `なるほどね〜`,
-      `うける 笑笑`,
-      `待って、それどういう意味？`,
-      `わかる、めっちゃわかる`,
-      `今夜空いてる？`,
-      `昨日の飯めちゃ美味かった 🍜`,
-      `このゲーム面白すぎる`,
-      `ちょっと待って今見てる`,
-      `了解〜`,
-      `そうなんだ〜`,
-      `うまく言えないけど、なんかいい感じ`,
-      `www`,
-      `あ、そっか`,
-      `まじかよ`,
-      `それはやばいな`,
-      `ゆっくりしてね 🙌`,
-    ]
+    fireNotificationRef.current = fireIncomingNotification
+  }, [fireIncomingNotification])
 
-    // Build a message with a random self-mention or normal conversation
-    const buildMentionMsg = (): { content: string; isMentionSelf: boolean } => {
-      const r = Math.random()
-      if (r < 0.35) {
-        // mention current user (ONLY target me!)
-        return {
-          content: `<@${CURRENT_USER_INTERNAL_ID}> ${pick([`ちょっといい？`, `見てる？`, `これ知ってた？`, `後で来て！`, `意見聞かせて`])}`,
-          isMentionSelf: true,
-        }
-      } else {
-        return { content: pick(CONVO), isMentionSelf: false }
-      }
+  // ── Server connection & data loading ─────────────────────────────────────
+  useEffect(() => {
+    const token = localStorage.getItem('token')
+    if (!token) {
+      navigate('/login')
+      return
     }
 
-    // ---- emoji pool for reactions ------------------------------------------
-    const REACTION_EMOJIS = [`👍`, `😂`, `❤️`, `🔥`, `😮`, `✅`, `🎉`, `👀`, `😭`, `💯`]
+    let cancelled = false
 
-    // ---- helpers -----------------------------------------------------------
-    function pick<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)] }
+    const loadData = async () => {
+      try {
+        // Verify token & get profile
+        const meData = await apiFetch('/auth/me')
+        if (cancelled) return
+        const profile = meData.profile
+        setCurrentUser(profile.internalId, profile.accountId)
+        setUserDisplayName(profile.displayName || profile.firstName)
+        setUserBio(profile.bio || '')
+        setUserAvatar(profile.avatarUrl || '')
+        setUserBanner(profile.bannerUrl || '')
+        localStorage.setItem('token', meData.token) // refresh
+        localStorage.setItem('internalId', profile.internalId)
+        localStorage.setItem('accountId', profile.accountId)
+        localStorage.setItem('displayName', profile.displayName || profile.firstName)
 
-    // ---- fire a notification dot + OS/sound if needed ----------------------
-    const fire = (isMention: boolean, senderName: string, label: string, body: string) => {
-      fireIncomingNotification(isMention, senderName, label, body)
-    }
+        // Load channels
+        const chData = await apiFetch('/channels')
+        if (cancelled) return
+        const chs: Channel[] = chData.channels.map((c: any) => ({
+          id: c.name,
+          internalId: c.internalId,
+          name: c.name,
+          displayName: c.displayName,
+          category: c.category,
+          participants: [],
+        }))
+        setChannels(chs)
+        setLocalChannels(chs)
 
-    // ---- post a message to the active channel view -------------------------
-    const postToActive = (sender: typeof dmUsers[0], content: string, isMentionSelf: boolean) => {
-      const msg: Message = {
-        id: `mock-${Date.now()}-${Math.random()}`,
-        userId: sender.internalId,
-        userName: sender.name,
-        content,
-        timestamp: new Date(),
-        reactions: {},
-      }
-      setMessagesByChannel(prev => ({
-        ...prev,
-        [currentChatId]: [...(prev[currentChatId] ?? []), msg]
-      }))
-      if (isMentionSelf || isDMRoute) {
-        fire(true, sender.name, isDMRoute ? `DM: ${sender.name}` : getChannelDisplayName(selectedChannel.internalId, selectedChannel.displayName), content)
-      }
-    }
+        // Load members (other users)
+        const memData = await apiFetch('/members')
+        if (cancelled) return
+        setAllMembers(memData.members)
+        const users: User[] = memData.members
+          .filter((m: any) => m.internalId !== profile.internalId)
+          .map((m: any) => ({
+            id: m.accountId,
+            internalId: m.internalId,
+            name: m.displayName || m.firstName,
+            status: 'offline' as const,
+          }))
+        setDmUsers(users)
 
-    // ---- add a reaction to a recent message --------------------------------
-    const addReactionToRecent = () => {
-      const emoji = pick(REACTION_EMOJIS)
-      const reactor = pick(dmUsers)
-      setMessagesByChannel(prev => {
-        const pool = prev[currentChatId] ?? []
-        if (pool.length === 0) return prev
-        // pick one of the last 5 messages
-        const recent = pool.slice(-5)
-        const target = pick(recent)
-        
-        const updatedPool = pool.map(m => {
-          if (m.id !== target.id) return m
-          const reactions = { ...(m.reactions ?? {}) }
-          const existing = reactions[emoji] ?? []
-          if (existing.includes(reactor.internalId)) return m // already reacted
-          reactions[emoji] = [...existing, reactor.internalId]
-          return { ...m, reactions }
+        // Connect socket
+        const socket = connectSocket(token)
+
+        socket.on('authenticated', (data: { ok: boolean; internalId?: string }) => {
+          if (!data.ok) {
+            localStorage.removeItem('token')
+            navigate('/login')
+          }
         })
-        
-        return {
-          ...prev,
-          [currentChatId]: updatedPool
-        }
-      })
-    }
 
-    // ---- VC mock events ----------------------------------------------------
-    const vcChannels = channels.filter(c => c.category === 'vc')
+        socket.on('online_users', (_internalIds: string[]) => {
+          // Can be used to update status indicators in the future
+        })
 
-    const doVCEvent = () => {
-      if (vcChannels.length === 0) return
-      const r = Math.random()
-
-      if (r < 0.22) {
-        // ── Join a random VC channel ────────────────────────────────────────
-        const chan = pick(vcChannels)
-        const user = pick(dmUsers)
-        addMember(chan.internalId, user.internalId)
-        unmuteUser(user.internalId)
-
-      } else if (r < 0.38) {
-        // ── Leave (from whichever channel they are in) ──────────────────────
-        const user = pick(dmUsers)
-        for (const chan of vcChannels) {
-          const members = membersByChannelId[chan.internalId] ?? []
-          if (members.includes(user.internalId)) {
-            removeMember(chan.internalId, user.internalId)
-            break
+        socket.on('channel_created', (c: any) => {
+          const newChan: Channel = {
+            id: c.name,
+            internalId: c.internalId,
+            name: c.name,
+            displayName: c.displayName,
+            category: c.category,
+            participants: [],
           }
-        }
-
-      } else if (r < 0.52) {
-        // ── Mute ──────────────────────────────────────────────────────────
-        // Pick a user that is currently in ANY vc channel
-        const allInVC = vcChannels.flatMap(c => membersByChannelId[c.internalId] ?? [])
-        const candidates = dmUsers.filter(u => allInVC.includes(u.internalId) && !mutedUsers.has(u.internalId))
-        if (candidates.length > 0) muteUser(pick(candidates).internalId)
-
-      } else if (r < 0.64) {
-        // ── Unmute ─────────────────────────────────────────────────────────
-        const mutedInVC = Array.from(mutedUsers).filter(uid =>
-          vcChannels.some(c => (membersByChannelId[c.internalId] ?? []).includes(uid))
-        )
-        if (mutedInVC.length > 0) unmuteUser(pick(mutedInVC))
-
-      } else if (r < 0.78) {
-        // ── Speaking burst (unmuted user starts speaking for ~2 s) ────────
-        const allInVC = vcChannels.flatMap(c => membersByChannelId[c.internalId] ?? [])
-        const speakers = dmUsers.filter(u => allInVC.includes(u.internalId) && !mutedUsers.has(u.internalId))
-        if (speakers.length > 0) {
-          const spk = pick(speakers)
-          setSpeaking(spk.internalId, true)
-          setTimeout(() => setSpeaking(spk.internalId, false), 1500 + Math.random() * 2000)
-        }
-
-      } else if (r < 0.88) {
-        // ── Channel switch (user leaves one VC and immediately joins another)
-        const user = pick(dmUsers)
-        for (const chan of vcChannels) {
-          const members = membersByChannelId[chan.internalId] ?? []
-          if (members.includes(user.internalId)) {
-            removeMember(chan.internalId, user.internalId)
-            const others = vcChannels.filter(c => c.internalId !== chan.internalId)
-            if (others.length > 0) {
-              const dest = pick(others)
-              setTimeout(() => addMember(dest.internalId, user.internalId), 600)
-            }
-            break
-          }
-        }
-
-      } else if (r < 0.94) {
-        // ── Everyone leaves a random VC (channel goes empty) ───────────────
-        const chan = pick(vcChannels)
-        const members = [...(membersByChannelId[chan.internalId] ?? [])]
-        members.forEach(uid => removeMember(chan.internalId, uid))
-      } else {
-        // ── Screen Share Toggle ──────────────────────────────────────────
-        const allInVC = vcChannels.flatMap(c => membersByChannelId[c.internalId] ?? [])
-        const candidates = dmUsers.filter(u => allInVC.includes(u.internalId))
-        if (candidates.length > 0) {
-          const targetUser = pick(candidates)
-          setParticipantScreenSharing(prev => {
-            const currentlySharing = !!prev[targetUser.internalId]
-            const nextSharing = !currentlySharing
-            return {
-              ...prev,
-              [targetUser.internalId]: nextSharing
-            }
+          setLocalChannels(prev => {
+            const next = [...prev, newChan]
+            setChannels(next)
+            return next
           })
-        }
-      }
-    }
+        })
 
-    // ---- main tick ---------------------------------------------------------
-    const tick = () => {
-      const action = Math.random()
+        socket.on('channel_updated', (c: any) => {
+          setLocalChannels(prev => {
+            const next = prev.map(ch => ch.internalId === c.internalId ? { ...ch, displayName: c.displayName } : ch)
+            setChannels(next)
+            return next
+          })
+        })
 
-      if (action < 0.30) {
-        // ── Chat in the currently visible channel/DM ──────────────────────
-        if (!isDMRoute) {
-          const sender = pick(dmUsers)
-          const { content, isMentionSelf } = buildMentionMsg()
-          postToActive(sender, content, isMentionSelf)
-        } else {
-          // DM: only send if the mock user matches the open DM user
-          const sender = dmUsers.find(u => u.internalId === internalUserId)
-          if (sender) {
-            const { content, isMentionSelf } = buildMentionMsg()
-            postToActive(sender, content, isMentionSelf)
-          }
-        }
-
-      } else if (action < 0.50) {
-        // ── Chat in a background channel (dot indicator / count badge) ─────
-        const bgChans = channels.filter(c =>
-          c.category === 'text' &&
-          (!isDMRoute ? c.internalId !== selectedChannel?.internalId : true)
-        )
-        if (bgChans.length > 0) {
-          const chan = pick(bgChans)
-          const sender = pick(dmUsers)
-          const { content, isMentionSelf } = buildMentionMsg()
-          
-          const msg: Message = {
-            id: `mock-${Date.now()}-${Math.random()}`,
-            userId: sender.internalId,
-            userName: sender.name,
-            content,
-            timestamp: new Date(),
-            reactions: {},
-          }
-          
+        // Message events
+        socket.on('message_history', (data: { channelId: string; messages: any[]; hasMore: boolean }) => {
+          const msgs: Message[] = data.messages.map((m: any) => ({
+            id: m.id,
+            userId: m.user,
+            userName: m.userName || allMembers.find((u: any) => u.internalId === m.user)?.displayName || m.user,
+            content: m.text || '',
+            timestamp: new Date(m.timestamp),
+            reactions: m.reactions || {},
+            replyTo: m.replyTo || undefined,
+            file: m.file || undefined,
+          }))
           setMessagesByChannel(prev => ({
             ...prev,
-            [chan.internalId]: [...(prev[chan.internalId] ?? []), msg]
+            [data.channelId]: msgs,
+          }))
+        })
+
+        socket.on('receive_message', (data: any) => {
+          const msg: Message = {
+            id: data.id,
+            userId: data.user,
+            userName: data.userName || data.user,
+            content: data.text || '',
+            timestamp: new Date(data.timestamp),
+            reactions: data.reactions || {},
+            replyTo: data.replyTo || undefined,
+            file: data.file || undefined,
+          }
+          setMessagesByChannel(prev => ({
+            ...prev,
+            [data.channelId]: [...(prev[data.channelId] ?? []), msg],
           }))
 
-          setChannelNotifications(prev => {
-            const current = prev[chan.internalId] || { type: 'none', count: 0 }
-            if (isMentionSelf) {
-              return {
-                ...prev,
-                [chan.internalId]: { type: 'mention', count: current.count + 1 }
-              }
-            } else {
-              return {
-                ...prev,
-                [chan.internalId]: {
-                  type: current.type === 'mention' ? 'mention' : 'unread',
-                  count: current.count
+          // Determine target notification ID:
+          // For DMs, channelId contains "__dm__". We should extract the sender's internalId (which is data.user).
+          const isDM = data.channelId.includes('__dm__')
+          const notificationKey = isDM ? data.user : data.channelId
+          
+          const currentActiveId = isDMRoute ? internalUserId : selectedChannel?.internalId
+
+          // Play sound and update notification state if we are not the sender
+          if (data.user !== profile.internalId) {
+            const isMention = data.text?.includes(`<@${profile.internalId}>`) || false
+            
+            // Play notification sound on incoming message
+            if (enableSoundNotifications) {
+              playSound(isMention ? 'mention' : 'toggle')
+            }
+
+            // If the message is in a different channel, update the unread/mention state!
+            if (notificationKey !== currentActiveId) {
+              setChannelNotifications(prev => {
+                const current = prev[notificationKey] || { type: 'none', count: 0 }
+                // Mentions promote 'unread' to 'mention'
+                const nextType = (isMention || current.type === 'mention') ? 'mention' : 'unread'
+                return {
+                  ...prev,
+                  [notificationKey]: {
+                    type: nextType,
+                    count: current.count + 1
+                  }
                 }
+              })
+            }
+
+            // Desktop notification
+            const chName = chs.find((c: any) => c.internalId === data.channelId)?.displayName || 'chat'
+            fireNotificationRef.current(isMention, data.userName || data.user, chName, data.text || '')
+          }
+        })
+
+        socket.on('reaction_updated', (data: { messageId: string; reactions: Record<string, string[]> }) => {
+          setMessagesByChannel(prev => {
+            const updated: Record<string, Message[]> = {}
+            for (const [chId, msgs] of Object.entries(prev)) {
+              updated[chId] = msgs.map(m =>
+                m.id === data.messageId ? { ...m, reactions: data.reactions } : m
+              )
+            }
+            return updated
+          })
+        })
+
+        socket.on('message_deleted', (data: { messageId: string }) => {
+          setMessagesByChannel(prev => {
+            const updated: Record<string, Message[]> = {}
+            for (const [chId, msgs] of Object.entries(prev)) {
+              updated[chId] = msgs.filter(m => m.id !== data.messageId)
+            }
+            return updated
+          })
+        })
+
+        socket.on('profile_updated', (data: { accountId: string; profile: any }) => {
+          setAllMembers(prev => prev.map(m => m.accountId === data.accountId ? { ...m, ...data.profile } : m))
+          if (data.accountId === profile.accountId) {
+            setUserDisplayName(data.profile.displayName || data.profile.firstName)
+            setUserBio(data.profile.bio || '')
+            setUserAvatar(data.profile.avatarUrl || '')
+            setUserBanner(data.profile.bannerUrl || '')
+            localStorage.setItem('displayName', data.profile.displayName || data.profile.firstName)
+          }
+        })
+
+        // Load initial unread states from DB
+        try {
+          const unreadData = await apiFetch('/unread')
+          const initialNotifications: Record<string, { type: 'none' | 'unread' | 'mention'; count: number }> = {}
+          for (const [chId, count] of Object.entries(unreadData.counts || {})) {
+            if (Number(count) > 0) {
+              initialNotifications[chId] = {
+                type: 'unread',
+                count: Number(count)
               }
             }
-          })
-          fire(isMentionSelf, sender.name, getChannelDisplayName(chan.internalId, chan.displayName), content)
-        }
-
-      } else if (action < 0.62) {
-        // ── DM in a background DM ─────────────────────────────────────────
-        const bgUsers = dmUsers.filter(u => !isDMRoute || u.internalId !== internalUserId)
-        if (bgUsers.length > 0) {
-          const bgUser = pick(bgUsers)
-          const { content } = buildMentionMsg()
-
-          const msg: Message = {
-            id: `mock-${Date.now()}-${Math.random()}`,
-            userId: bgUser.internalId,
-            userName: bgUser.name,
-            content,
-            timestamp: new Date(),
-            reactions: {},
           }
-
-          setMessagesByChannel(prev => ({
-            ...prev,
-            [bgUser.internalId]: [...(prev[bgUser.internalId] ?? []), msg]
-          }))
-
-          setChannelNotifications(prev => {
-            const current = prev[bgUser.internalId] || { type: 'none', count: 0 }
-            return {
-              ...prev,
-              [bgUser.internalId]: { type: 'mention', count: current.count + 1 }
-            }
-          })
-          fire(true, bgUser.name, `DM: ${bgUser.name}`, content)
+          setChannelNotifications(initialNotifications)
+        } catch (unreadErr) {
+          console.error('Failed to load initial unread counts from DB:', unreadErr)
         }
 
-      } else if (action < 0.72) {
-        // ── Reaction on a recent message ──────────────────────────────────
-        addReactionToRecent()
-
-      } else {
-        // ── VC event (38% of ticks → very active VC) ─────────────────────
-        doVCEvent()
+        setDataLoaded(true)
+      } catch (err) {
+        console.error('Failed to load data:', err)
+        localStorage.removeItem('token')
+        navigate('/login')
       }
     }
 
-    // Stagger first tick so it doesn't fire immediately on mount
-    const initialDelay = setTimeout(tick, 800 + Math.random() * 800)
-
-    // Subsequent ticks every 1.5–3 seconds
-    let intervalId: ReturnType<typeof setInterval>
-    const startInterval = () => {
-      intervalId = setInterval(() => {
-        tick()
-      }, 1500 + Math.random() * 1500)
-    }
-    const delayStart = setTimeout(startInterval, 800)
+    loadData()
 
     return () => {
-      clearTimeout(initialDelay)
-      clearTimeout(delayStart)
-      clearInterval(intervalId)
+      cancelled = true
+      const socket = getSocket()
+      socket.off('authenticated')
+      socket.off('online_users')
+      socket.off('channel_created')
+      socket.off('channel_updated')
+      socket.off('message_history')
+      socket.off('receive_message')
+      socket.off('reaction_updated')
+      socket.off('message_deleted')
+      socket.off('profile_updated')
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDMRoute, internalUserId, selectedChannel?.internalId, fireIncomingNotification, addMember, removeMember])
+  }, [navigate])
+
+  // Join socket room when channel changes
+  useEffect(() => {
+    if (!dataLoaded || !currentChatId) return
+    const socket = getSocket()
+    if (socket.connected) {
+      socket.emit('join_room', currentChatId)
+    }
+  }, [dataLoaded, currentChatId])
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  // ── End of mock activity engine ──────────────────────────────────────────
+
 
   const handleDeleteMessage = useCallback((messageId: string) => {
-    setMessagesByChannel(prev => {
-      const pool = prev[currentChatId] ?? []
-      const updatedPool = pool.filter(m => m.id !== messageId)
-      return {
-        ...prev,
-        [currentChatId]: updatedPool
-      }
-    })
+    const socket = getSocket()
+    socket.emit('delete_message', { messageId, channelId: currentChatId })
   }, [currentChatId])
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault()
     if (!inputValue.trim()) return
 
-    const newMessage: Message = {
-      id: Date.now().toString(),
-      userId: 'current-user',
-      userName: 'aiueo aiueioo',
-      content: inputValue,
-      timestamp: new Date(),
-      reactions: {},
+    const socket = getSocket()
+    const data = {
+      id: `${currentUser.internalId}-${Date.now()}-${Math.random()}`,
+      user: currentUser.internalId,
+      userName: currentUser.name,
+      timestamp: Date.now(),
+      text: inputValue,
+      imageUrl: '',
+      channelId: currentChatId,
       replyTo: replyingToMessage ? {
         id: replyingToMessage.id,
         userId: replyingToMessage.userId,
         userName: replyingToMessage.userName,
         content: replyingToMessage.content,
-      } : undefined,
+      } : null,
+      reactions: {},
+      file: null
     }
 
-    setMessagesByChannel(prev => ({
-      ...prev,
-      [currentChatId]: [...(prev[currentChatId] ?? []), newMessage]
-    }))
+    socket.emit('send_message', data)
+
     setInputValue('')
     setReplyingToMessage(null)
     setShowMentionSuggestions(false)
@@ -1006,14 +933,24 @@ export default function Chat() {
   useEffect(() => {
     if (messages.length === 0) return
     const lastMessage = messages[messages.length - 1]
-    if (lastMessage.userId === 'current-user') {
+    if (lastMessage.userId === currentUser.internalId) {
       // Small timeout to let React finish rendering the new DOM nodes
       setTimeout(scrollToBottom, 50)
     }
   }, [messages])
 
-  const handleToggleScreenShare = () => {
-    setIsScreenSharing(!isScreenSharing)
+  const handleToggleScreenShare = async () => {
+    if (!isScreenSharing) {
+      const stream = await startScreenShare()
+      if (stream) {
+        setIsScreenSharing(true)
+        getSocket().emit('update_voice_state', { isScreenSharing: true })
+      }
+    } else {
+      stopScreenShare()
+      setIsScreenSharing(false)
+      getSocket().emit('update_voice_state', { isScreenSharing: false })
+    }
   }
 
   const handleChannelClick = (channelInternalId: string) => {
@@ -1071,13 +1008,13 @@ export default function Chat() {
       requestJoinVC(previousVCChannel)
       navigate(`/channels/vc/${previousVCChannel.internalId}`)
     } else {
-      navigate(`/channels/chat/${channels[0].internalId}`)
+      navigate(`/channels/chat/${localChannels[0]?.internalId || ''}`)
     }
   }
 
   const handleCloseVCModal = () => {
     closeVCModal()
-    navigate(`/channels/chat/${channels[0].internalId}`)
+    navigate(`/channels/chat/${localChannels[0]?.internalId || ''}`)
   }
 
   // VC名前変更ハンドラー
@@ -1087,13 +1024,17 @@ export default function Chat() {
     setRenameValue(currentName)
   }
 
-  const handleConfirmRename = (e: React.MouseEvent) => {
+  const handleConfirmRename = async (e: React.MouseEvent) => {
     e.stopPropagation()
     if (renamingChannelId && renameValue.trim()) {
-      setChannelNames(prev => ({
-        ...prev,
-        [renamingChannelId]: renameValue.trim()
-      }))
+      try {
+        await apiFetch(`/channels/${renamingChannelId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ displayName: renameValue.trim() })
+        })
+      } catch (err) {
+        console.error('Failed to rename channel:', err)
+      }
     }
     setRenamingChannelId(null)
     setRenameValue('')
@@ -1105,13 +1046,17 @@ export default function Chat() {
     setRenameValue('')
   }
 
-  const handleRenameKeyDown = (e: React.KeyboardEvent) => {
+  const handleRenameKeyDown = async (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       if (renamingChannelId && renameValue.trim()) {
-        setChannelNames(prev => ({
-          ...prev,
-          [renamingChannelId]: renameValue.trim()
-        }))
+        try {
+          await apiFetch(`/channels/${renamingChannelId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ displayName: renameValue.trim() })
+          })
+        } catch (err) {
+          console.error('Failed to rename channel:', err)
+        }
       }
       setRenamingChannelId(null)
       setRenameValue('')
@@ -1120,6 +1065,31 @@ export default function Chat() {
       setRenameValue('')
     }
   }
+
+  const handleSaveSettings = async () => {
+    try {
+      const data = await apiFetch('/auth/profile', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          displayName: userDisplayName,
+          bio: userBio,
+          avatarUrl: userAvatar,
+          bannerUrl: userBanner,
+        })
+      })
+      setUserDisplayName(data.profile.displayName || data.profile.firstName)
+      setUserBio(data.profile.bio || '')
+      setUserAvatar(data.profile.avatarUrl || '')
+      setUserBanner(data.profile.bannerUrl || '')
+      localStorage.setItem('displayName', data.profile.displayName || data.profile.firstName)
+      setShowSettingsModal(false)
+    } catch (err) {
+      console.error('Failed to save profile:', err)
+      setShowSettingsModal(false)
+    }
+  }
+
+
 
   const formatFullTime = (date: Date) => {
     const hours = String(date.getHours()).padStart(2, '0')
@@ -1176,15 +1146,12 @@ export default function Chat() {
   }
 
   const handleOwnProfileClick = () => {
-    setSelectedUserId('current-user')
+    setSelectedUserId(currentUser.internalId)
     setShowUserProfile(true)
   }
 
   const handleEmojiSelect = (emoji: string) => {
     setInputValue(prev => prev + emoji)
-    // Don't close the picker for input field emoji selection
-    // setShowEmojiPicker(false)
-    // setEmojiPickerPosition(null)
   }
 
   const handleMessageEmojiSelect = (emoji: string) => {
@@ -1194,36 +1161,30 @@ export default function Chat() {
       return
     }
 
-    const currentUserId = 'current-user'
+    const currentUserId = currentUser.internalId
+    const message = messages.find(m => m.id === reactionTargetMessageId)
+    if (message) {
+      const currentReactions = message.reactions ?? {}
+      const existingUserIds = currentReactions[emoji] ?? []
+      const hasReacted = existingUserIds.includes(currentUserId)
 
-    setMessagesByChannel(prev => {
-      const pool = prev[currentChatId] ?? []
-      const updatedPool = pool.map(message => {
-        if (message.id !== reactionTargetMessageId) return message
+      const nextUserIds = hasReacted
+        ? existingUserIds.filter(id => id !== currentUserId)
+        : [...existingUserIds, currentUserId]
 
-        const currentReactions = message.reactions ?? {}
-        const existingUserIds = currentReactions[emoji] ?? []
-        const hasReacted = existingUserIds.includes(currentUserId)
-
-        const nextUserIds = hasReacted
-          ? existingUserIds.filter(id => id !== currentUserId)
-          : [...existingUserIds, currentUserId]
-
-        const nextReactions: Record<string, string[]> = { ...currentReactions }
-        if (nextUserIds.length === 0) {
-          delete nextReactions[emoji]
-        } else {
-          nextReactions[emoji] = nextUserIds
-        }
-
-        return { ...message, reactions: nextReactions }
-      })
-
-      return {
-        ...prev,
-        [currentChatId]: updatedPool
+      const nextReactions: Record<string, string[]> = { ...currentReactions }
+      if (nextUserIds.length === 0) {
+        delete nextReactions[emoji]
+      } else {
+        nextReactions[emoji] = nextUserIds
       }
-    })
+
+      getSocket().emit('add_reaction', {
+        messageId: reactionTargetMessageId,
+        channelId: currentChatId,
+        reactions: nextReactions
+      })
+    }
 
     setReactionTargetMessageId(null)
     setShowEmojiPicker(false)
@@ -1231,20 +1192,21 @@ export default function Chat() {
   }
 
   const handleGifSelect = (gifUrl: string) => {
-    // Send GIF as a message
-    const newMessage: Message = {
-      id: Date.now().toString(),
-      userId: 'current-user',
-      userName: 'aiueo aiueioo',
-      content: gifUrl,
-      timestamp: new Date(),
+    const socket = getSocket()
+    const data = {
+      id: `${currentUser.internalId}-${Date.now()}-${Math.random()}`,
+      user: currentUser.internalId,
+      userName: currentUser.name,
+      timestamp: Date.now(),
+      text: gifUrl,
+      imageUrl: '',
+      channelId: currentChatId,
+      replyTo: null,
       reactions: {},
+      file: null
     }
+    socket.emit('send_message', data)
 
-    setMessagesByChannel(prev => ({
-      ...prev,
-      [currentChatId]: [...(prev[currentChatId] ?? []), newMessage]
-    }))
     setShowEmojiPicker(false)
     setEmojiPickerPosition(null)
   }
@@ -1264,12 +1226,16 @@ export default function Chat() {
       const reader = new FileReader()
       reader.onload = (event) => {
         const dataUrl = event.target?.result as string
-        const newMessage: Message = {
-          id: Date.now().toString(),
-          userId: 'current-user',
-          userName: 'aiueo aiueioo',
-          content: '',
-          timestamp: new Date(),
+        const socket = getSocket()
+        const data = {
+          id: `${currentUser.internalId}-${Date.now()}-${Math.random()}`,
+          user: currentUser.internalId,
+          userName: currentUser.name,
+          timestamp: Date.now(),
+          text: '',
+          imageUrl: '',
+          channelId: currentChatId,
+          replyTo: null,
           reactions: {},
           file: {
             name: file.name,
@@ -1278,10 +1244,7 @@ export default function Chat() {
             dataUrl: dataUrl,
           },
         }
-        setMessagesByChannel(prev => ({
-          ...prev,
-          [currentChatId]: [...(prev[currentChatId] ?? []), newMessage]
-        }))
+        socket.emit('send_message', data)
       }
       reader.readAsDataURL(file)
     })
@@ -1365,8 +1328,8 @@ export default function Chat() {
     setShowEmojiPicker(true)
   }
 
-  const textChannels = channels.filter(c => c.category === 'text')
-  const vcChannels = channels.filter(c => c.category === 'vc')
+  const textChannels = localChannels.filter(c => c.category === 'text')
+  const vcChannels = localChannels.filter(c => c.category === 'vc')
 
   const viewingVCChannel = selectedChannel.category === 'vc' ? selectedChannel : null
   const viewingMemberIds = viewingVCChannel ? (membersByChannelId[viewingVCChannel.internalId] ?? []) : []
@@ -1390,7 +1353,7 @@ export default function Chat() {
                 style={{ position: 'relative' }}
               >
                 <Avatar className="user-avatar">
-                  <AvatarImage src={getUserAvatar(user.internalId)} alt={user.name} />
+                  <AvatarImage src={getUserAvatarUrl(user.internalId)} alt={user.name} />
                   <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
                 </Avatar>
                 <div className="user-details">
@@ -1420,7 +1383,9 @@ export default function Chat() {
         </div>
         <ScrollArea className="sidebar-content">
           <div className="channel-section">
-            <h3 className="channel-category-title">テキストチャンネル</h3>
+            <div className="channel-category-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: '12px' }}>
+              <h3 className="channel-category-title">テキストチャンネル</h3>
+            </div>
             <nav className="channel-list">
               {textChannels.map((channel) => (
                 <button
@@ -1451,7 +1416,9 @@ export default function Chat() {
           </div>
 
           <div className="channel-section">
-            <h3 className="channel-category-title">ボイスチャンネル</h3>
+            <div className="channel-category-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: '12px' }}>
+              <h3 className="channel-category-title">ボイスチャンネル</h3>
+            </div>
             <nav className="channel-list">
               {vcChannels.map((channel) => (
                 <div key={channel.internalId} className="vc-channel-wrapper">
@@ -1472,7 +1439,7 @@ export default function Chat() {
                           autoFocus
                         />
                       ) : (
-                        <span className="channel-path">{getChannelDisplayName(channel.internalId, channel.displayName)}</span>
+                        <span className="channel-path">{channel.displayName}</span>
                       )}
                     </button>
                     {channelNotifications[channel.internalId]?.type === 'unread' && (
@@ -1495,7 +1462,7 @@ export default function Chat() {
                     ) : (
                       <button 
                         className="vc-rename-btn"
-                        onClick={(e) => handleStartRenameVC(channel.internalId, getChannelDisplayName(channel.internalId, channel.displayName), e)}
+                        onClick={(e) => handleStartRenameVC(channel.internalId, channel.displayName, e)}
                         title="名前を変える"
                       >
                         <Pencil size={12} />
@@ -1509,7 +1476,7 @@ export default function Chat() {
                         return user ? (
                           <div key={userInternalId} className="vc-participant">
                             <Avatar className="vc-participant-avatar">
-                              <AvatarImage src={getUserAvatar(userInternalId)} alt={user.name} />
+                              <AvatarImage src={getUserAvatarUrl(userInternalId)} alt={user.name} />
                               <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
                             </Avatar>
                             <span className="vc-participant-name">{user.name}</span>
@@ -1541,7 +1508,7 @@ export default function Chat() {
                 ) : (
                   <Hash size={20} className="header-icon" />
                 )}
-                <h1>{getChannelDisplayName(selectedChannel.internalId, selectedChannel.displayName)}</h1>
+                <h1>{selectedChannel.displayName}</h1>
               </>
             )}
           </div>
@@ -1550,7 +1517,7 @@ export default function Chat() {
         {!isDMRoute && showVCModal && pendingVCChannel ? (
           <div className="vc-join-container">
             <VCJoinModal
-              channelName={getChannelDisplayName(pendingVCChannel.internalId, pendingVCChannel.displayName)}
+              channelName={pendingVCChannel.displayName}
               isMicOn={isMicOn}
               isSpeakerOn={isSpeakerOn}
               onToggleMic={toggleMic}
@@ -1562,7 +1529,7 @@ export default function Chat() {
           </div>
         ) : !isDMRoute && isConnectedToVC && selectedChannel.category === 'vc' && viewingVCChannel ? (
           <VCView
-              channelName={getChannelDisplayName(viewingVCChannel.internalId, viewingVCChannel.displayName)}
+              channelName={viewingVCChannel.displayName}
               participants={viewingOtherParticipants}
               currentUser={currentUser}
               currentUserInChannel={currentUserInViewingVC}
@@ -1572,12 +1539,15 @@ export default function Chat() {
               isParticipantScreenSharing={participantScreenSharing}
               mutedUsers={mutedUsers}
               speakingUsers={speakingUsers}
+              remoteStreams={remoteStreams}
+              localScreenStream={localScreenStream}
+              userSocketIds={userSocketIds}
               onToggleMic={toggleMic}
               onToggleSpeaker={toggleSpeaker}
               onToggleScreenShare={handleToggleScreenShare}
               onDisconnect={handleDisconnectVC}
               getInitials={getInitials}
-              getUserAvatar={getUserAvatar}
+              getUserAvatar={getUserAvatarUrl}
           />
         ) : (
           <>
@@ -1593,7 +1563,7 @@ export default function Chat() {
                       (message.timestamp.getTime() - messages[index - 1].timestamp.getTime()) <= 60000;
 
                     const showDateSeparator = index === 0 || dateChanged;
-                    const isMentioned = message.content.includes(`<@${CURRENT_USER_INTERNAL_ID}>`);
+                    const isMentioned = message.content.includes(`<@${currentUser.internalId}>`);
 
                     return (
                       <div key={message.id} className="message-item-wrapper">
@@ -1622,7 +1592,7 @@ export default function Chat() {
                                   onClick={() => handleUserClick(message.userId)}
                                 >
                                   <Avatar className="message-avatar clickable-avatar">
-                                    <AvatarImage src={getUserAvatar(message.userId)} alt={message.userName} />
+                                    <AvatarImage src={getUserAvatarUrl(message.userId)} alt={message.userName} />
                                     <AvatarFallback>{getInitials(message.userName)}</AvatarFallback>
                                   </Avatar>
                                   <span className="message-user">{message.userName}</span>
@@ -1652,7 +1622,7 @@ export default function Chat() {
                               <div className="message-reactions">
                                 {Object.entries(message.reactions).map(([emoji, userIds]) => {
                                   const safeUserIds = userIds ?? []
-                                  const hasReacted = safeUserIds.includes('current-user')
+                                  const hasReacted = safeUserIds.includes(currentUser.internalId)
 
                                   return (
                                     <button
@@ -1660,33 +1630,26 @@ export default function Chat() {
                                       type="button"
                                       className={`reaction-pill ${hasReacted ? 'reacted' : ''}`}
                                       onClick={() => {
-                                        setReactionTargetMessageId(message.id)
-                                        setMessagesByChannel(prev => {
-                                          const pool = prev[currentChatId] ?? []
-                                          const updatedPool = pool.map(m => {
-                                            if (m.id !== message.id) return m
+                                        const currentUserId = currentUser.internalId
+                                        const currentReactions = message.reactions ?? {}
+                                        const existingUserIds = currentReactions[emoji] ?? []
+                                        const already = existingUserIds.includes(currentUserId)
 
-                                            const currentReactions = m.reactions ?? {}
-                                            const existingUserIds = currentReactions[emoji] ?? []
-                                            const already = existingUserIds.includes('current-user')
+                                        const nextUserIds = already
+                                          ? existingUserIds.filter(id => id !== currentUserId)
+                                          : [...existingUserIds, currentUserId]
 
-                                            const nextUserIds = already
-                                              ? existingUserIds.filter(id => id !== 'current-user')
-                                              : [...existingUserIds, 'current-user']
+                                        const nextReactions: Record<string, string[]> = { ...currentReactions }
+                                        if (nextUserIds.length === 0) {
+                                          delete nextReactions[emoji]
+                                        } else {
+                                          nextReactions[emoji] = nextUserIds
+                                        }
 
-                                            const nextReactions: Record<string, string[]> = { ...currentReactions }
-                                            if (nextUserIds.length === 0) {
-                                              delete nextReactions[emoji]
-                                            } else {
-                                              nextReactions[emoji] = nextUserIds
-                                            }
-
-                                            return { ...m, reactions: nextReactions }
-                                          })
-                                          return {
-                                            ...prev,
-                                            [currentChatId]: updatedPool
-                                          }
+                                        getSocket().emit('add_reaction', {
+                                          messageId: message.id,
+                                          channelId: currentChatId,
+                                          reactions: nextReactions
                                         })
                                       }}
                                       title={hasReacted ? 'リアクションを削除' : 'リアクションを追加'}
@@ -1727,8 +1690,8 @@ export default function Chat() {
                             >
                               <Reply size={18} />
                             </Button>
-                            {/* 削除ボタン（「その他」の代わりに一番右に配置） */}
-                            {(message.userId === 'current-user' || message.userId === CURRENT_USER_INTERNAL_ID) && (
+                            {/* 削除ボタン */}
+                            {(message.userId === currentUser.internalId) && (
                               <Button
                                 size="icon"
                                 variant="ghost"
@@ -1786,7 +1749,7 @@ export default function Chat() {
                       onClick={() => handleSelectMention(user)}
                     >
                       <Avatar className="mention-suggestion-avatar">
-                        <AvatarImage src={getUserAvatar(user.internalId)} alt={user.name} />
+                        <AvatarImage src={getUserAvatarUrl(user.internalId)} alt={user.name} />
                         <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
                       </Avatar>
                       <span className="mention-suggestion-name">{user.name}</span>
@@ -1801,11 +1764,12 @@ export default function Chat() {
                   size="icon"
                   variant="ghost"
                   className="plus-button"
-                  onClick={() => setShowPlusMenu(!showPlusMenu)}
+                  onClick={() => canWriteInCurrentChannel && setShowPlusMenu(!showPlusMenu)}
+                  disabled={!canWriteInCurrentChannel}
                 >
                   <Plus size={20} />
                 </Button>
-                {showPlusMenu && (
+                {showPlusMenu && canWriteInCurrentChannel && (
                   <div className="plus-menu">
                     <button 
                       className="plus-menu-item"
@@ -1833,10 +1797,14 @@ export default function Chat() {
                 ref={inputRef}
                 type="text"
                 className="message-input"
-                placeholder={`${isDMRoute ? dmDisplayName : selectedChannel.displayName} にメッセージを送信`}
+                placeholder={canWriteInCurrentChannel 
+                  ? `${isDMRoute ? dmDisplayName : selectedChannel.displayName} にメッセージを送信` 
+                  : "🔒 このチャンネルでの発言権限がありません"
+                }
                 value={inputValue}
                 onChange={handleInputChange}
                 onKeyDown={handleInputKeyDown}
+                disabled={!canWriteInCurrentChannel}
               />
               <Button 
                 type="button"
@@ -1844,6 +1812,7 @@ export default function Chat() {
                 variant="ghost"
                 className="emoji-button-inline"
                 onClick={handleEmojiButtonClick}
+                disabled={!canWriteInCurrentChannel}
               >
                 <Smile size={20} />
               </Button>
@@ -1851,7 +1820,7 @@ export default function Chat() {
                 type="submit" 
                 size="icon"
                 className="send-button-inline"
-                disabled={!inputValue.trim()}
+                disabled={!canWriteInCurrentChannel || !inputValue.trim()}
               >
                 <Send size={18} />
               </Button>
@@ -1887,7 +1856,7 @@ export default function Chat() {
         {/* VC Connection Info - Above User Controls */}
         {isConnectedToVC && connectedVCChannel && (
           <VCConnectionInfo
-            channelName={getChannelDisplayName(connectedVCChannel.internalId, connectedVCChannel.displayName)}
+            channelName={connectedVCChannel.displayName}
             onDisconnect={handleDisconnectVC}
           />
         )}
@@ -1898,11 +1867,11 @@ export default function Chat() {
             onClick={handleOwnProfileClick}
           >
             <Avatar className="profile-avatar">
-              <AvatarImage src={getUserAvatar('current-user')} alt="aiueo aiueioo" />
-              <AvatarFallback>AA</AvatarFallback>
+              <AvatarImage src={getUserAvatarUrl(currentUser.internalId)} alt={currentUser.name} />
+              <AvatarFallback>{getInitials(currentUser.name)}</AvatarFallback>
             </Avatar>
             <div className="profile-info">
-              <span className="profile-name">aiueo aiueioo</span>
+              <span className="profile-name">{currentUser.name}</span>
             </div>
           </div>
           <div className="control-buttons">
@@ -1941,22 +1910,24 @@ export default function Chat() {
       {showUserProfile && selectedUserId ? (
         <UserProfile
           userId={selectedUserId}
-          userName={selectedUserId === 'current-user' ? userDisplayName : dmUsers.find(u => u.internalId === selectedUserId)?.name || 'User'}
+          userName={selectedUserId === currentUser.internalId ? userDisplayName : dmUsers.find(u => u.internalId === selectedUserId)?.name || 'User'}
           status={getUserStatusMessage(selectedUserId)}
-          bio={selectedUserId === 'current-user' ? userBio : 'よろしくお願いします！'}
+          bio={selectedUserId === currentUser.internalId ? userBio : allMembers.find(m => m.internalId === selectedUserId)?.bio || 'よろしくお願いします！'}
           onClose={handleCloseProfile}
-          isCurrentUser={selectedUserId === 'current-user'}
-          avatarSrc={getUserAvatar(selectedUserId)}
+          isCurrentUser={selectedUserId === currentUser.internalId}
+          avatarSrc={getUserAvatarUrl(selectedUserId)}
+          bannerSrc={getUserBannerUrl(selectedUserId)}
         />
       ) : isDMRoute && internalUserId ? (
         <UserProfile
           userId={internalUserId}
           userName={dmUser?.name || 'User'}
           status={getUserStatusMessage(internalUserId)}
-          bio={internalUserId === currentUser.internalId ? userBio : 'よろしくお願いします！'}
+          bio={internalUserId === currentUser.internalId ? userBio : allMembers.find(m => m.internalId === internalUserId)?.bio || 'よろしくお願いします！'}
           onClose={handleCloseProfile}
           isCurrentUser={internalUserId === currentUser.internalId}
-          avatarSrc={getUserAvatar(internalUserId)}
+          avatarSrc={getUserAvatarUrl(internalUserId)}
+          bannerSrc={getUserBannerUrl(internalUserId)}
           hideCloseButton={true}
         />
       ) : null}
@@ -2027,12 +1998,30 @@ export default function Chat() {
               {settingsTab === 'profile' && (
                 <div className="settings-content">
                   <div className="settings-profile-header">
-                    <div className="settings-profile-banner">
+                    <div 
+                      className="settings-profile-banner"
+                      style={{ 
+                        backgroundImage: userBanner ? `url(${userBanner})` : undefined,
+                        backgroundSize: 'cover',
+                        backgroundPosition: 'center',
+                        backgroundColor: '#2a2a2e'
+                      }}
+                    >
                       <input 
                         type="file" 
                         accept="image/*" 
                         className="settings-file-input"
                         id="banner-upload"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (file) {
+                            const reader = new FileReader()
+                            reader.onload = (ev) => {
+                              setUserBanner(ev.target?.result as string)
+                            }
+                            reader.readAsDataURL(file)
+                          }
+                        }}
                       />
                       <label htmlFor="banner-upload" className="settings-banner-upload">
                         <div className="settings-banner-overlay">
@@ -2047,10 +2036,20 @@ export default function Chat() {
                         accept="image/*" 
                         className="settings-file-input"
                         id="avatar-upload"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (file) {
+                            const reader = new FileReader()
+                            reader.onload = (ev) => {
+                              setUserAvatar(ev.target?.result as string)
+                            }
+                            reader.readAsDataURL(file)
+                          }
+                        }}
                       />
                       <label htmlFor="avatar-upload" className="settings-avatar-upload">
                         <img 
-                          src={getUserAvatar(currentUser.id)} 
+                          src={userAvatar || getUserAvatar(currentUser.id)} 
                           alt="Profile" 
                           className="settings-avatar-image"
                         />
@@ -2108,7 +2107,7 @@ export default function Chat() {
                       <input 
                         type="text" 
                         className="settings-input" 
-                        defaultValue="user_4cd9001d"
+                        defaultValue={localStorage.getItem('accountId') || ''}
                         disabled
                       />
                     </div>
@@ -2247,7 +2246,7 @@ export default function Chat() {
                 </button>
                 <button 
                   className="settings-save-button"
-                  onClick={() => setShowSettingsModal(false)}
+                  onClick={handleSaveSettings}
                 >
                   保存
                 </button>
@@ -2256,6 +2255,8 @@ export default function Chat() {
           </div>
         </div>
       )}
+
+
     </div>
   )
 }

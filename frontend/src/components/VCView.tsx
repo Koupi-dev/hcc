@@ -8,6 +8,7 @@ type User = {
   id: string
   name: string
   status: 'online' | 'offline'
+  internalId?: string
 }
 
 interface VCViewProps {
@@ -21,6 +22,9 @@ interface VCViewProps {
   isParticipantScreenSharing?: Record<string, boolean>
   mutedUsers?: Set<string>
   speakingUsers?: Set<string>
+  remoteStreams?: Record<string, MediaStream>
+  localScreenStream?: MediaStream | null
+  userSocketIds?: Record<string, string>
   onToggleMic: () => void
   onToggleSpeaker: () => void
   onToggleScreenShare: () => void
@@ -137,6 +141,9 @@ export default function VCView({
   isParticipantScreenSharing = {},
   mutedUsers = new Set(),
   speakingUsers = new Set(),
+  remoteStreams = {},
+  localScreenStream = null,
+  userSocketIds = {},
   onToggleMic,
   onToggleSpeaker,
   onToggleScreenShare,
@@ -144,7 +151,7 @@ export default function VCView({
   getInitials,
   getUserAvatar
 }: VCViewProps) {
-  const [screenStream, setScreenStream] = useState<MediaStream | null>(null)
+
   const [selectedScreenShareUserIndex, setSelectedScreenShareUserIndex] = useState(0)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [showParticipantList, setShowParticipantList] = useState(true)
@@ -152,7 +159,7 @@ export default function VCView({
   const [userVolumes, setUserVolumes] = useState<Record<string, number>>({})
   const videoRef = useRef<HTMLVideoElement>(null)
   const screenShareContainerRef = useRef<HTMLDivElement>(null)
-  const isRequestingScreenShare = useRef(false)
+
 
   // 参加者リスト（自分を含む）
   const allParticipants = currentUserInChannel ? [currentUser, ...participants] : participants
@@ -181,81 +188,14 @@ export default function VCView({
   const hasScreenShare = allSharingUsers.length > 0 && screenSharingUserData
 
   // 画面共有の開始
+  // Local screen share video stream assignment
   useEffect(() => {
-    if (!isScreenSharing) {
-      return
-    }
-
-    if (screenStream) {
-      // すでに画面共有中
-      return
-    }
-
-    if (isRequestingScreenShare.current) {
-      // リクエスト中
-      return
-    }
-
-    isRequestingScreenShare.current = true
-
-    const startScreenShare = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getDisplayMedia({
-          video: { cursor: 'always' } as MediaTrackConstraints,
-          audio: false,
-        })
-
-        setScreenStream(stream)
-
-        // ビデオトラック終了時の処理
-        const videoTrack = stream.getVideoTracks()[0]
-        if (videoTrack) {
-          const handleTrackEnded = () => {
-            setScreenStream(null)
-            onToggleScreenShare()
-          }
-          videoTrack.addEventListener('ended', handleTrackEnded)
-        }
-      } catch (error) {
-        console.error('画面共有に失敗しました:', error)
-        isRequestingScreenShare.current = false
-        onToggleScreenShare()
+    if (activeScreenShareUserId === currentUser.id && isScreenSharing && localScreenStream && videoRef.current) {
+      if (videoRef.current.srcObject !== localScreenStream) {
+        videoRef.current.srcObject = localScreenStream
       }
     }
-
-    startScreenShare()
-  }, [isScreenSharing, screenStream, onToggleScreenShare])
-
-  // ビデオ要素にストリームを設定
-  useEffect(() => {
-    if (videoRef.current && screenStream) {
-      videoRef.current.srcObject = screenStream
-      // 画面共有が実際に開始されたときに音を再生
-      playSound('screenShareOn')
-    }
-  }, [screenStream])
-
-  // 画面共有の停止
-  useEffect(() => {
-    if (isScreenSharing || !screenStream) {
-      return
-    }
-
-    // 画面共有を停止
-    playSound('screenShareOff')
-    screenStream.getTracks().forEach(track => track.stop())
-    setScreenStream(null)
-    isRequestingScreenShare.current = false
-  }, [isScreenSharing, screenStream])
-
-  // クリーンアップ
-  useEffect(() => {
-    return () => {
-      if (screenStream) {
-        screenStream.getTracks().forEach(track => track.stop())
-      }
-    }
-  }, [])
+  }, [activeScreenShareUserId, currentUser.id, isScreenSharing, localScreenStream])
 
   // フルスクリーン切替
   const toggleFullscreen = useCallback(() => {
@@ -345,9 +285,9 @@ export default function VCView({
   // 参加者タイルの描画
   const renderParticipantTile = (user: User, variant: 'grid' | 'list') => {
     const isSelf = user.id === currentUser.id
-    const isMuted = isSelf ? !isMicOn : mutedUsers.has(user.id)
-    const isSpeaking = isSelf ? isMicOn && !mutedUsers.has(user.id) && Math.random() < 0.3 : speakingUsers.has(user.id)
-    const isUserScreenSharing = allSharingUsers.includes(user.id)
+    const isMuted = isSelf ? !isMicOn : mutedUsers.has(user.internalId || user.id)
+    const isSpeaking = isSelf ? isMicOn && !mutedUsers.has(user.internalId || user.id) && Math.random() < 0.3 : speakingUsers.has(user.internalId || user.id)
+    const isUserScreenSharing = allSharingUsers.includes(user.internalId || user.id)
 
     return (
       <div 
@@ -357,7 +297,7 @@ export default function VCView({
       >
         <div className="vc-tile__video-area">
           <Avatar className="vc-tile__avatar">
-            <AvatarImage src={getUserAvatar(user.id)} alt={user.name} />
+            <AvatarImage src={getUserAvatar(user.internalId || user.id)} alt={user.name} />
             <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
           </Avatar>
         </div>
@@ -442,6 +382,17 @@ export default function VCView({
                     playsInline
                     muted
                     className="vc-screenshare__video"
+                  />
+                ) : activeScreenShareUserId && userSocketIds[activeScreenShareUserId] && remoteStreams[userSocketIds[activeScreenShareUserId]] ? (
+                  <video
+                    autoPlay
+                    playsInline
+                    className="vc-screenshare__video"
+                    ref={(el) => {
+                      if (el && el.srcObject !== remoteStreams[userSocketIds[activeScreenShareUserId]]) {
+                        el.srcObject = remoteStreams[userSocketIds[activeScreenShareUserId]]
+                      }
+                    }}
                   />
                 ) : (
                   <div className="vc-screenshare__placeholder">

@@ -9,6 +9,7 @@ interface UserProfileProps {
   onClose: () => void;
   isCurrentUser?: boolean;
   avatarSrc?: string;
+  bannerSrc?: string;
   hideCloseButton?: boolean;
 }
 
@@ -20,6 +21,7 @@ export default function UserProfile({
   onClose,
   isCurrentUser = false,
   avatarSrc = '/default-avatar.png',
+  bannerSrc = '',
   hideCloseButton = false
 }: UserProfileProps) {
   const getInitials = (name: string) => {
@@ -36,7 +38,15 @@ export default function UserProfile({
 
       <div className="user-profile-content">
         <div className="user-profile-header">
-          <div className="user-profile-banner" />
+          <div 
+            className="user-profile-banner" 
+            style={{ 
+              backgroundImage: bannerSrc ? `url(${bannerSrc})` : undefined,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+              backgroundColor: '#5c64f2'
+            }}
+          />
           <div className="user-profile-header-bottom">
             <div className="user-profile-avatar-wrapper">
               <Avatar className="user-profile-avatar">

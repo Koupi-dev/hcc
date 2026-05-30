@@ -251,6 +251,10 @@
   text-align: left;
   font-weight: 500;
   transition: color 0.2s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 /* Channel Sidebar */
@@ -344,6 +348,10 @@
   font-family: monospace;
   flex: 1;
   font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .channel-item.active .channel-path {
@@ -1723,6 +1731,11 @@
   font-size: 13px;
   color: #5f6368;
   font-weight: 400;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
 }
 
 /* VC Join Modal */
